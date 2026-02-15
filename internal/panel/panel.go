@@ -8,6 +8,7 @@ import (
 	"github.com/rivo/tview"
 
 	"github.com/feherkaroly/vc/internal/model"
+	"github.com/feherkaroly/vc/internal/platform"
 	"github.com/feherkaroly/vc/internal/theme"
 	"github.com/feherkaroly/vc/internal/vfs"
 )
@@ -77,7 +78,7 @@ func (p *Panel) loadEntries() {
 	p.Entries = make([]model.FileEntry, 0, len(dirEntries)+1)
 
 	// Add parent directory entry if not root
-	if p.Path != "/" {
+	if !platform.IsRootPath(p.Path) {
 		p.Entries = append(p.Entries, model.FileEntry{
 			Name:    "..",
 			IsDir:   true,
@@ -171,33 +172,36 @@ func (p *Panel) CurrentPath() string {
 }
 
 // Enter handles Enter key: navigate into directory or return entry.
-func (p *Panel) Enter() *model.FileEntry {
+// Returns the file entry (if a file was selected) and whether a drive switch is needed.
+func (p *Panel) Enter() (*model.FileEntry, bool) {
 	e := p.CurrentEntry()
 	if e == nil {
-		return nil
+		return nil, false
 	}
 
 	if e.IsDir {
 		if e.Name == ".." {
-			p.GoParent()
-		} else {
-			newPath := p.FS.Join(p.Path, e.Name)
-			p.NavigateTo(newPath, "")
+			atRoot := p.GoParent()
+			return nil, atRoot
 		}
-		return nil
+		newPath := p.FS.Join(p.Path, e.Name)
+		p.NavigateTo(newPath, "")
+		return nil, false
 	}
 
-	return e
+	return e, false
 }
 
 // GoParent navigates to the parent directory.
-func (p *Panel) GoParent() {
+// Returns true if already at root (caller should show drive dialog).
+func (p *Panel) GoParent() bool {
 	parent := p.FS.Dir(p.Path)
 	if parent == p.Path {
-		return
+		return true
 	}
 	oldName := p.FS.Base(p.Path)
 	p.NavigateTo(parent, oldName)
+	return false
 }
 
 // NavigateTo changes to a new directory, optionally focusing on a named entry.

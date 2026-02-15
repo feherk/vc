@@ -77,8 +77,11 @@ func (a *App) SetupKeyBindings() {
 
 		case tcell.KeyBackspace, tcell.KeyBackspace2:
 			if !a.CmdLineFocused {
-				a.GetActivePanel().GoParent()
-				a.CmdLine.SetPath(a.GetActivePanel().Path)
+				p := a.GetActivePanel()
+				if atRoot := p.GoParent(); atRoot && !p.IsRemote() {
+					a.ShowDriveSelector()
+				}
+				a.CmdLine.SetPath(p.Path)
 				return nil
 			}
 
@@ -86,8 +89,11 @@ func (a *App) SetupKeyBindings() {
 			if a.CmdLineFocused {
 				return event
 			}
-			entry := a.GetActivePanel().Enter()
-			if entry != nil {
+			p := a.GetActivePanel()
+			entry, atRoot := p.Enter()
+			if atRoot && !p.IsRemote() {
+				a.ShowDriveSelector()
+			} else if entry != nil {
 				a.OpenFile()
 				go func() {
 					time.Sleep(2 * time.Second)
@@ -97,7 +103,7 @@ func (a *App) SetupKeyBindings() {
 					})
 				}()
 			}
-			a.CmdLine.SetPath(a.GetActivePanel().Path)
+			a.CmdLine.SetPath(p.Path)
 			return nil
 
 		case tcell.KeyCtrlS:

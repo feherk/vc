@@ -22,6 +22,7 @@ import (
 	"github.com/feherkaroly/vc/internal/menu"
 	"github.com/feherkaroly/vc/internal/model"
 	"github.com/feherkaroly/vc/internal/panel"
+	"github.com/feherkaroly/vc/internal/platform"
 	"github.com/feherkaroly/vc/internal/theme"
 	"github.com/feherkaroly/vc/internal/vfs"
 	"github.com/feherkaroly/vc/internal/viewer"
@@ -1046,6 +1047,25 @@ func (a *App) saveConfigWithServers(cfg *config.Config) {
 	cfg.LeftPanel = config.PanelConfig{Mode: int(a.LeftPanel.Mode), SortMode: int(a.LeftPanel.SortMode)}
 	cfg.RightPanel = config.PanelConfig{Mode: int(a.RightPanel.Mode), SortMode: int(a.RightPanel.SortMode)}
 	config.Save(cfg)
+}
+
+// ShowDriveSelector shows a drive selection dialog (Windows only).
+func (a *App) ShowDriveSelector() {
+	drives := platform.GetDrives()
+	if len(drives) == 0 {
+		return
+	}
+
+	p := a.GetActivePanel()
+	dialog.ShowDriveDialog(a.Pages, drives, func(drive string) {
+		a.closeDialog("drive_dialog")
+		p.NavigateTo(drive, "")
+		a.CmdLine.SetPath(p.Path)
+	}, func() {
+		a.closeDialog("drive_dialog")
+	})
+	a.ModalOpen = true
+	a.TviewApp.SetFocus(a.Pages)
 }
 
 func (a *App) showRemoteError(operation string) {
