@@ -8,7 +8,7 @@ import (
 	application "github.com/feherkaroly/vc/internal/app"
 )
 
-var Version = "1.0.0"
+var Version = "1.0.1"
 
 func main() {
 	showVersion := flag.Bool("version", false, "Show version")

@@ -219,7 +219,17 @@ func (a *App) ZipFiles() {
 		return
 	}
 
-	zipName := fmt.Sprintf("archiv_%d.zip", time.Now().UnixNano())
+	var zipName string
+	if p.Selection.Count() > 0 {
+		zipName = fmt.Sprintf("archiv_%d.zip", time.Now().UnixNano())
+	} else {
+		name := entries[0].Name
+		ext := filepath.Ext(name)
+		if ext != "" {
+			name = strings.TrimSuffix(name, ext)
+		}
+		zipName = name + ".zip"
+	}
 	zipPath := filepath.Join(p.Path, zipName)
 
 	go func() {
@@ -234,7 +244,7 @@ func (a *App) ZipFiles() {
 				return
 			}
 			p.Selection.Clear()
-			p.Refresh()
+			p.NavigateTo(p.Path, zipName)
 			a.GetInactivePanel().Refresh()
 		})
 	}()
@@ -299,6 +309,11 @@ func addDirToZip(w *zip.Writer, dirPath, prefix string) error {
 			return err
 		}
 
+		// Skip symlinks
+		if info.Mode()&os.ModeSymlink != 0 {
+			return nil
+		}
+
 		rel, err := filepath.Rel(filepath.Dir(dirPath), path)
 		if err != nil {
 			return err
@@ -307,6 +322,11 @@ func addDirToZip(w *zip.Writer, dirPath, prefix string) error {
 		if info.IsDir() {
 			_, err = w.Create(rel + "/")
 			return err
+		}
+
+		// Skip non-regular files
+		if !info.Mode().IsRegular() {
+			return nil
 		}
 
 		return addFileToZip(w, path, rel)
