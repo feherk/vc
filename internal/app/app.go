@@ -387,6 +387,11 @@ func (a *App) CopyFiles() {
 			return
 		}
 
+		// Relative path → resolve from source panel directory
+		if !filepath.IsAbs(target) {
+			target = filepath.Join(src.Path, target)
+		}
+
 		ctx, cancel := context.WithCancel(context.Background())
 
 		pd := dialog.NewProgressDialog("Copying", func() {
@@ -464,6 +469,11 @@ func (a *App) MoveFiles() {
 		a.closeDialog("input")
 		if target == "" {
 			return
+		}
+
+		// Relative path → resolve from source panel directory
+		if !filepath.IsAbs(target) {
+			target = filepath.Join(src.Path, target)
 		}
 
 		ctx, cancel := context.WithCancel(context.Background())
