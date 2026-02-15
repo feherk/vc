@@ -11,9 +11,20 @@ type PanelConfig struct {
 	SortMode int `json:"sort_mode"`
 }
 
+type ServerConfig struct {
+	Name     string `json:"name"`
+	Protocol string `json:"protocol"` // "sftp", "ftp", "ftps"
+	Host     string `json:"host"`
+	Port     int    `json:"port,omitempty"` // 0 = default (22/21)
+	User     string `json:"user"`
+	Password string `json:"password,omitempty"`
+	KeyPath  string `json:"key_path,omitempty"`
+}
+
 type Config struct {
-	LeftPanel  PanelConfig `json:"left_panel"`
-	RightPanel PanelConfig `json:"right_panel"`
+	LeftPanel  PanelConfig    `json:"left_panel"`
+	RightPanel PanelConfig    `json:"right_panel"`
+	Servers    []ServerConfig `json:"servers,omitempty"`
 }
 
 func configPath() string {
@@ -34,9 +45,17 @@ func Load() *Config {
 func Save(c *Config) {
 	p := configPath()
 	os.MkdirAll(filepath.Dir(p), 0755)
-	data, err := json.Marshal(c)
+	data, err := json.MarshalIndent(c, "", "  ")
 	if err != nil {
 		return
 	}
-	os.WriteFile(p, data, 0644)
+	// Use 0600 if any server has a password
+	perm := os.FileMode(0644)
+	for _, s := range c.Servers {
+		if s.Password != "" {
+			perm = 0600
+			break
+		}
+	}
+	os.WriteFile(p, data, perm)
 }

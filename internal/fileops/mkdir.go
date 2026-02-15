@@ -1,8 +1,8 @@
 package fileops
 
-import "os"
+import "github.com/feherkaroly/vc/internal/vfs"
 
 // MkDir creates a new directory (with parents if needed).
-func MkDir(path string) error {
-	return os.MkdirAll(path, 0755)
+func MkDir(fs vfs.FileSystem, path string) error {
+	return fs.MkdirAll(path, 0755)
 }

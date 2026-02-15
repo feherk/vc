@@ -9,6 +9,7 @@ import (
 
 	"github.com/feherkaroly/vc/internal/model"
 	"github.com/feherkaroly/vc/internal/theme"
+	"github.com/feherkaroly/vc/internal/vfs"
 )
 
 // Panel represents one side of the dual-pane file manager.
@@ -24,10 +25,13 @@ type Panel struct {
 	Active    bool
 
 	SearchBuf string
+
+	FS              vfs.FileSystem
+	ConnectedServer string
 }
 
 // NewPanel creates a new file panel at the given path.
-func NewPanel(path string) *Panel {
+func NewPanel(path string, fs vfs.FileSystem) *Panel {
 	absPath, err := filepath.Abs(path)
 	if err != nil {
 		absPath = path
@@ -56,6 +60,7 @@ func NewPanel(path string) *Panel {
 		Selection: model.NewSelection(),
 		SortMode:  SortByName,
 		Mode:      ModeFull,
+		FS:        fs,
 	}
 
 	p.LoadDir()
@@ -64,7 +69,7 @@ func NewPanel(path string) *Panel {
 
 // loadEntries reads the current directory and populates entries (no rendering).
 func (p *Panel) loadEntries() {
-	dirEntries, err := os.ReadDir(p.Path)
+	dirEntries, err := p.FS.ReadDir(p.Path)
 	if err != nil {
 		return
 	}
@@ -81,32 +86,15 @@ func (p *Panel) loadEntries() {
 	}
 
 	for _, de := range dirEntries {
-		info, err := de.Info()
-		if err != nil {
-			continue
-		}
-
 		entry := model.FileEntry{
-			Name:    de.Name(),
-			Size:    info.Size(),
-			ModTime: info.ModTime(),
-			Mode:    info.Mode(),
-			IsDir:   de.IsDir(),
+			Name:    de.Name,
+			Size:    de.Size,
+			ModTime: de.ModTime,
+			Mode:    de.Mode,
+			IsDir:   de.IsDir,
+			IsLink:  de.IsLink,
+			LinkTo:  de.LinkTo,
 			DirSize: -1,
-		}
-
-		// Check for symlinks
-		if de.Type()&os.ModeSymlink != 0 {
-			entry.IsLink = true
-			if target, err := os.Readlink(filepath.Join(p.Path, de.Name())); err == nil {
-				entry.LinkTo = target
-			}
-			if fi, err := os.Stat(filepath.Join(p.Path, de.Name())); err == nil {
-				entry.IsDir = fi.IsDir()
-				entry.Size = fi.Size()
-				entry.ModTime = fi.ModTime()
-				entry.Mode = fi.Mode()
-			}
 		}
 
 		p.Entries = append(p.Entries, entry)
@@ -139,7 +127,13 @@ func (p *Panel) Render() {
 
 // UpdateTitle sets the panel border title to the current path.
 func (p *Panel) UpdateTitle() {
-	p.Box.SetTitle(" " + shortenPath(p.Path) + " ")
+	title := p.Path
+	if p.ConnectedServer != "" {
+		title = "[" + p.ConnectedServer + "] " + p.Path
+	} else {
+		title = shortenPath(p.Path)
+	}
+	p.Box.SetTitle(" " + title + " ")
 	p.Box.SetTitleAlign(tview.AlignLeft)
 	p.Box.SetTitleColor(theme.ColorHeaderFg)
 
@@ -173,7 +167,7 @@ func (p *Panel) CurrentPath() string {
 	if e == nil {
 		return p.Path
 	}
-	return filepath.Join(p.Path, e.Name)
+	return p.FS.Join(p.Path, e.Name)
 }
 
 // Enter handles Enter key: navigate into directory or return entry.
@@ -187,7 +181,7 @@ func (p *Panel) Enter() *model.FileEntry {
 		if e.Name == ".." {
 			p.GoParent()
 		} else {
-			newPath := filepath.Join(p.Path, e.Name)
+			newPath := p.FS.Join(p.Path, e.Name)
 			p.NavigateTo(newPath, "")
 		}
 		return nil
@@ -198,11 +192,11 @@ func (p *Panel) Enter() *model.FileEntry {
 
 // GoParent navigates to the parent directory.
 func (p *Panel) GoParent() {
-	parent := filepath.Dir(p.Path)
+	parent := p.FS.Dir(p.Path)
 	if parent == p.Path {
 		return
 	}
-	oldName := filepath.Base(p.Path)
+	oldName := p.FS.Base(p.Path)
 	p.NavigateTo(parent, oldName)
 }
 
@@ -320,6 +314,11 @@ func (p *Panel) HandleSelectionChanged(row, col int) {
 	if p.Cursor >= len(p.Entries) {
 		p.Cursor = len(p.Entries) - 1
 	}
+}
+
+// IsRemote returns true if the panel is connected to a remote server.
+func (p *Panel) IsRemote() bool {
+	return !p.FS.IsLocal()
 }
 
 func shortenPath(path string) string {

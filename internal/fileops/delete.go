@@ -1,8 +1,8 @@
 package fileops
 
-import "os"
+import "github.com/feherkaroly/vc/internal/vfs"
 
 // Delete removes a file or directory recursively.
-func Delete(path string) error {
-	return os.RemoveAll(path)
+func Delete(fs vfs.FileSystem, path string) error {
+	return fs.RemoveAll(path)
 }

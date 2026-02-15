@@ -15,7 +15,7 @@ type FnBar struct {
 }
 
 var fnLabels = [10]string{
-	"Help", "Zip", "View", "Edit", "Copy",
+	"Conn", "Zip", "View", "Edit", "Copy",
 	"Move", "MkDir", "Del", "Menu", "Quit",
 }
 

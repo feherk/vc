@@ -23,6 +23,7 @@ import (
 	"github.com/feherkaroly/vc/internal/model"
 	"github.com/feherkaroly/vc/internal/panel"
 	"github.com/feherkaroly/vc/internal/theme"
+	"github.com/feherkaroly/vc/internal/vfs"
 	"github.com/feherkaroly/vc/internal/viewer"
 )
 
@@ -37,6 +38,7 @@ type App struct {
 	MenuBar *menu.MenuBar
 	FnBar   *fnbar.FnBar
 	CmdLine *cmdline.CmdLine
+	ConnMgr *vfs.ConnMgr
 
 	activePanel    int // 0 = left, 1 = right
 	MenuActive     bool
@@ -50,10 +52,11 @@ var Version string
 func New(leftPath, rightPath string) *App {
 	a := &App{
 		TviewApp: tview.NewApplication(),
+		ConnMgr:  vfs.NewConnMgr(),
 	}
 
-	a.LeftPanel = panel.NewPanel(leftPath)
-	a.RightPanel = panel.NewPanel(rightPath)
+	a.LeftPanel = panel.NewPanel(leftPath, vfs.NewLocalFS())
+	a.RightPanel = panel.NewPanel(rightPath, vfs.NewLocalFS())
 	a.MenuBar = menu.NewMenuBar()
 	a.MenuBar.Version = Version
 	a.FnBar = fnbar.New()
@@ -107,6 +110,7 @@ func (a *App) buildLayout() {
 
 // Run starts the application.
 func (a *App) Run() error {
+	defer a.ConnMgr.DisconnectAll()
 	return a.TviewApp.SetRoot(a.Pages, true).Run()
 }
 
@@ -159,10 +163,33 @@ func (a *App) ViewFile() {
 		return
 	}
 
-	path := filepath.Join(p.Path, e.Name)
+	path := p.FS.Join(p.Path, e.Name)
 
 	if strings.HasSuffix(strings.ToLower(e.Name), ".zip") {
+		if p.IsRemote() {
+			a.showRemoteError("View zip")
+			return
+		}
 		a.viewZipContents(path)
+		return
+	}
+
+	if p.IsRemote() {
+		// Remote file: read via VFS and display as text
+		data, err := p.FS.ReadFile(path)
+		if err != nil {
+			dialog.ShowError(a.Pages, "Read error: "+err.Error(), func() {
+				a.closeDialog("error")
+			})
+			a.ModalOpen = true
+			a.TviewApp.SetFocus(a.Pages)
+			return
+		}
+		v := viewer.NewFromText(path, string(data))
+		v.SetDoneFunc(func() {
+			a.closeDialog("viewer")
+		})
+		a.showDialog("viewer", v)
 		return
 	}
 
@@ -214,6 +241,10 @@ func (a *App) viewZipContents(path string) {
 // ZipFiles handles F2 — compress selected items or current item into a zip archive.
 func (a *App) ZipFiles() {
 	p := a.GetActivePanel()
+	if p.IsRemote() {
+		a.showRemoteError("Zip")
+		return
+	}
 	entries := p.GetSelectedOrCurrent()
 	if len(entries) == 0 {
 		return
@@ -333,10 +364,13 @@ func addDirToZip(w *zip.Writer, dirPath, prefix string) error {
 	})
 }
 
-// EditFile opens the file in $EDITOR using Suspend.
 // OpenFile opens the current file with the system default application.
 func (a *App) OpenFile() {
 	p := a.GetActivePanel()
+	if p.IsRemote() {
+		a.showRemoteError("Open")
+		return
+	}
 	e := p.CurrentEntry()
 	if e == nil || e.IsDir {
 		return
@@ -345,8 +379,13 @@ func (a *App) OpenFile() {
 	exec.Command("open", path).Start()
 }
 
+// EditFile opens the file in $EDITOR using Suspend.
 func (a *App) EditFile() {
 	p := a.GetActivePanel()
+	if p.IsRemote() {
+		a.showRemoteError("Edit")
+		return
+	}
 	e := p.CurrentEntry()
 	if e == nil || e.IsDir {
 		return
@@ -380,6 +419,8 @@ func (a *App) CopyFiles() {
 	}
 
 	desc := entryNames(entries)
+	srcFS := src.FS
+	dstFS := dst.FS
 
 	dialog.ShowInput(a.Pages, "Copy", "Copy "+desc+" to:", dst.Path, func(target string) {
 		a.closeDialog("input")
@@ -387,8 +428,8 @@ func (a *App) CopyFiles() {
 			return
 		}
 
-		// Relative path → resolve from source panel directory
-		if !filepath.IsAbs(target) {
+		// Relative path → resolve from destination panel
+		if !filepath.IsAbs(target) && dstFS.IsLocal() {
 			target = filepath.Join(src.Path, target)
 		}
 
@@ -404,11 +445,11 @@ func (a *App) CopyFiles() {
 			fileCount := len(entries)
 
 			for i, entry := range entries {
-				srcPath := filepath.Join(src.Path, entry.Name)
-				dstPath := filepath.Join(target, entry.Name)
+				srcPath := srcFS.Join(src.Path, entry.Name)
+				dstPath := dstFS.Join(target, entry.Name)
 
 				fileIdx := i + 1
-				err := fileops.Copy(ctx, srcPath, dstPath, func(p fileops.Progress) {
+				err := fileops.Copy(ctx, srcFS, srcPath, dstFS, dstPath, func(p fileops.Progress) {
 					p.FileIndex = fileIdx
 					p.FileCount = fileCount
 					now := time.Now()
@@ -459,10 +500,12 @@ func (a *App) MoveFiles() {
 	}
 
 	desc := entryNames(entries)
+	srcFS := src.FS
+	dstFS := dst.FS
 
 	defaultTarget := dst.Path
 	if len(entries) == 1 {
-		defaultTarget = filepath.Join(dst.Path, entries[0].Name)
+		defaultTarget = dstFS.Join(dst.Path, entries[0].Name)
 	}
 
 	dialog.ShowInput(a.Pages, "Move/Rename", "Move "+desc+" to:", defaultTarget, func(target string) {
@@ -472,7 +515,7 @@ func (a *App) MoveFiles() {
 		}
 
 		// Relative path → resolve from source panel directory
-		if !filepath.IsAbs(target) {
+		if !filepath.IsAbs(target) && dstFS.IsLocal() {
 			target = filepath.Join(src.Path, target)
 		}
 
@@ -488,14 +531,14 @@ func (a *App) MoveFiles() {
 			fileCount := len(entries)
 
 			for i, entry := range entries {
-				srcPath := filepath.Join(src.Path, entry.Name)
+				srcPath := srcFS.Join(src.Path, entry.Name)
 				dstPath := target
 				if len(entries) > 1 {
-					dstPath = filepath.Join(target, entry.Name)
+					dstPath = dstFS.Join(target, entry.Name)
 				}
 
 				fileIdx := i + 1
-				err := fileops.Move(ctx, srcPath, dstPath, func(p fileops.Progress) {
+				err := fileops.Move(ctx, srcFS, srcPath, dstFS, dstPath, func(p fileops.Progress) {
 					p.FileIndex = fileIdx
 					p.FileCount = fileCount
 					now := time.Now()
@@ -546,7 +589,7 @@ func (a *App) MakeDir() {
 			return
 		}
 
-		err := fileops.MkDir(filepath.Join(p.Path, name))
+		err := fileops.MkDir(p.FS, p.FS.Join(p.Path, name))
 		if err != nil {
 			dialog.ShowError(a.Pages, "MkDir error: "+err.Error(), func() {
 				a.closeDialog("error")
@@ -582,8 +625,8 @@ func (a *App) DeleteFiles() {
 
 		go func() {
 			for _, entry := range entries {
-				path := filepath.Join(p.Path, entry.Name)
-				err := fileops.Delete(path)
+				path := p.FS.Join(p.Path, entry.Name)
+				err := fileops.Delete(p.FS, path)
 				if err != nil {
 					a.TviewApp.QueueUpdateDraw(func() {
 						dialog.ShowError(a.Pages, "Delete error: "+err.Error(), func() {
@@ -615,10 +658,10 @@ func (a *App) CalcDirSize() {
 		return
 	}
 
-	dirPath := filepath.Join(p.Path, e.Name)
+	dirPath := p.FS.Join(p.Path, e.Name)
 
 	go func() {
-		size := fileops.CalcDirSize(dirPath)
+		size := fileops.CalcDirSize(p.FS, dirPath)
 		a.TviewApp.QueueUpdateDraw(func() {
 			e.DirSize = size
 			p.Render()
@@ -687,6 +730,11 @@ func (a *App) ExecuteCommand(cmd string) {
 	}
 
 	p := a.GetActivePanel()
+
+	if p.IsRemote() {
+		a.showRemoteError("Execute command")
+		return
+	}
 
 	a.TviewApp.Suspend(func() {
 		c := exec.Command("sh", "-c", cmd)
@@ -863,8 +911,149 @@ func (a *App) SaveConfig() {
 
 func (a *App) swapPanels() {
 	a.LeftPanel.Path, a.RightPanel.Path = a.RightPanel.Path, a.LeftPanel.Path
+	a.LeftPanel.FS, a.RightPanel.FS = a.RightPanel.FS, a.LeftPanel.FS
+	a.LeftPanel.ConnectedServer, a.RightPanel.ConnectedServer = a.RightPanel.ConnectedServer, a.LeftPanel.ConnectedServer
 	a.LeftPanel.Refresh()
 	a.RightPanel.Refresh()
+}
+
+// ShowServerDialog opens the F1 server connection dialog.
+func (a *App) ShowServerDialog() {
+	cfg := config.Load()
+
+	var showDialog func()
+	showDialog = func() {
+		dialog.ShowServerDialog(a.Pages, cfg.Servers, dialog.ServerDialogCallbacks{
+			OnConnect: func(srv config.ServerConfig) {
+				a.closeDialog("server_dialog")
+				a.connectPanel(a.GetActivePanel(), srv)
+			},
+			OnDisconnect: func(name string) {
+				a.closeDialog("server_dialog")
+				p := a.GetActivePanel()
+				if p.ConnectedServer == name {
+					a.disconnectPanel(p)
+				}
+			},
+			OnAdd: func() {
+				a.Pages.RemovePage("server_dialog")
+				dialog.ShowServerEdit(a.Pages, "Add Server", config.ServerConfig{Protocol: "sftp"}, func(srv config.ServerConfig) {
+					a.Pages.RemovePage("server_edit")
+					cfg.Servers = append(cfg.Servers, srv)
+					a.saveConfigWithServers(cfg)
+					showDialog()
+				}, func() {
+					a.Pages.RemovePage("server_edit")
+					a.ModalOpen = false
+					showDialog()
+				})
+			},
+			OnEdit: func(idx int, srv config.ServerConfig) {
+				a.Pages.RemovePage("server_dialog")
+				dialog.ShowServerEdit(a.Pages, "Edit Server", srv, func(updated config.ServerConfig) {
+					a.Pages.RemovePage("server_edit")
+					cfg.Servers[idx] = updated
+					a.saveConfigWithServers(cfg)
+					showDialog()
+				}, func() {
+					a.Pages.RemovePage("server_edit")
+					a.ModalOpen = false
+					showDialog()
+				})
+			},
+			OnDelete: func(idx int) {
+				a.closeDialog("server_dialog")
+				name := cfg.Servers[idx].Name
+				dialog.ShowConfirm(a.Pages, "Delete Server", "Delete server '"+name+"'?", func(yes bool) {
+					a.closeDialog("confirm")
+					if yes {
+						cfg.Servers = append(cfg.Servers[:idx], cfg.Servers[idx+1:]...)
+						a.saveConfigWithServers(cfg)
+					}
+					showDialog()
+				})
+				a.ModalOpen = true
+				a.TviewApp.SetFocus(a.Pages)
+			},
+			OnClose: func() {
+				a.closeDialog("server_dialog")
+			},
+			IsConnected: func(name string) bool {
+				return a.ConnMgr.IsConnected(name)
+			},
+		})
+		a.ModalOpen = true
+		a.TviewApp.SetFocus(a.Pages)
+	}
+	showDialog()
+}
+
+func (a *App) connectPanel(p *panel.Panel, srv config.ServerConfig) {
+	// Show a simple "connecting" message
+	dialog.ShowError(a.Pages, "Connecting to "+srv.Name+"...", nil)
+	a.ModalOpen = true
+	a.TviewApp.SetFocus(a.Pages)
+	a.TviewApp.ForceDraw()
+
+	go func() {
+		fs, err := a.ConnMgr.Connect(srv)
+		a.TviewApp.QueueUpdateDraw(func() {
+			a.closeDialog("error")
+			if err != nil {
+				dialog.ShowError(a.Pages, "Connection failed: "+err.Error(), func() {
+					a.closeDialog("error")
+				})
+				a.ModalOpen = true
+				a.TviewApp.SetFocus(a.Pages)
+				return
+			}
+
+			p.FS = fs
+			p.ConnectedServer = srv.Name
+			p.Path = "/"
+			p.Refresh()
+			a.CmdLine.SetPath(a.GetActivePanel().Path)
+		})
+	}()
+}
+
+func (a *App) disconnectPanel(p *panel.Panel) {
+	name := p.ConnectedServer
+	if name == "" {
+		return
+	}
+
+	// Check if the other panel uses the same connection
+	other := a.GetInactivePanel()
+	otherUsesSame := other.ConnectedServer == name
+
+	p.FS = vfs.NewLocalFS()
+	p.ConnectedServer = ""
+	home, err := os.UserHomeDir()
+	if err != nil {
+		home = "/"
+	}
+	p.Path = home
+	p.Refresh()
+	a.CmdLine.SetPath(a.GetActivePanel().Path)
+
+	if !otherUsesSame {
+		a.ConnMgr.Disconnect(name)
+	}
+}
+
+func (a *App) saveConfigWithServers(cfg *config.Config) {
+	cfg.LeftPanel = config.PanelConfig{Mode: int(a.LeftPanel.Mode), SortMode: int(a.LeftPanel.SortMode)}
+	cfg.RightPanel = config.PanelConfig{Mode: int(a.RightPanel.Mode), SortMode: int(a.RightPanel.SortMode)}
+	config.Save(cfg)
+}
+
+func (a *App) showRemoteError(operation string) {
+	dialog.ShowError(a.Pages, operation+" is not available on remote panels.", func() {
+		a.closeDialog("error")
+	})
+	a.ModalOpen = true
+	a.TviewApp.SetFocus(a.Pages)
 }
 
 func entryNames(entries []model.FileEntry) string {

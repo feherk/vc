@@ -1,19 +1,16 @@
 package fileops
 
-import (
-	"os"
-	"path/filepath"
-)
+import "github.com/feherkaroly/vc/internal/vfs"
 
 // CalcDirSize recursively calculates the total size of a directory.
-func CalcDirSize(path string) int64 {
+func CalcDirSize(fs vfs.FileSystem, path string) int64 {
 	var total int64
-	filepath.Walk(path, func(_ string, info os.FileInfo, err error) error {
+	fs.Walk(path, func(_ string, info vfs.FileInfo, err error) error {
 		if err != nil {
 			return nil // Skip errors
 		}
-		if !info.IsDir() {
-			total += info.Size()
+		if !info.IsDir {
+			total += info.Size
 		}
 		return nil
 	})

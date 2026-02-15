@@ -21,6 +21,10 @@ func (a *App) SetupKeyBindings() {
 		}
 
 		switch event.Key() {
+		case tcell.KeyF1:
+			a.ShowServerDialog()
+			return nil
+
 		case tcell.KeyF10:
 			a.TviewApp.Stop()
 			return nil
