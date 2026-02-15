@@ -20,7 +20,17 @@ func ShowInput(pages *tview.Pages, title, label, defaultValue string, onOK func(
 	form.SetTitle(" " + title + " ")
 	form.SetBorder(true)
 
-	form.AddInputField(label, defaultValue, 50, nil, nil)
+	// Calculate dialog width based on content
+	dialogWidth := len(label) + len(defaultValue) + 10
+	if dialogWidth < 60 {
+		dialogWidth = 60
+	}
+	if dialogWidth > 100 {
+		dialogWidth = 100
+	}
+	fieldWidth := dialogWidth - len(label) - 6
+
+	form.AddInputField(label, defaultValue, fieldWidth, nil, nil)
 	form.AddButton("OK", func() {
 		value := form.GetFormItem(0).(*tview.InputField).GetText()
 		onOK(value)
@@ -41,7 +51,7 @@ func ShowInput(pages *tview.Pages, title, label, defaultValue string, onOK func(
 		AddItem(nil, 0, 1, false).
 		AddItem(tview.NewFlex().SetDirection(tview.FlexColumn).
 			AddItem(nil, 0, 1, false).
-			AddItem(form, 60, 0, true).
+			AddItem(form, dialogWidth, 0, true).
 			AddItem(nil, 0, 1, false),
 			7, 0, true).
 		AddItem(nil, 0, 1, false)
