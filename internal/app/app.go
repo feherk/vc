@@ -876,27 +876,36 @@ func (a *App) ExecuteCommand(cmd string) {
 
 	p := a.GetActivePanel()
 
-	if p.IsRemote() {
-		a.showRemoteError("Execute command")
+	// Handle "cd" command: navigate the active panel (works on remote panels too)
+	trimmed := strings.TrimSpace(cmd)
+	if trimmed == "cd" || strings.HasPrefix(trimmed, "cd ") {
+		dir := strings.TrimSpace(strings.TrimPrefix(trimmed, "cd"))
+		if p.IsRemote() {
+			if dir == "" || dir == "/" {
+				dir = "/"
+			} else if dir == ".." {
+				dir = p.FS.Dir(p.Path)
+			} else if !strings.HasPrefix(dir, "/") {
+				dir = p.FS.Join(p.Path, dir)
+			}
+		} else {
+			if dir == "" || dir == "~" {
+				dir, _ = os.UserHomeDir()
+			} else if strings.HasPrefix(dir, "~/") {
+				home, _ := os.UserHomeDir()
+				dir = filepath.Join(home, dir[2:])
+			} else if !filepath.IsAbs(dir) {
+				dir = filepath.Join(p.Path, dir)
+			}
+			dir = filepath.Clean(dir)
+		}
+		p.NavigateTo(dir, "")
+		a.CmdLine.SetPath(p.Path)
 		return
 	}
 
-	// Handle "cd" command: navigate the active panel
-	if strings.TrimSpace(cmd) == "cd" || strings.HasPrefix(strings.TrimSpace(cmd), "cd ") {
-		dir := strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(cmd), "cd"))
-		if dir == "" || dir == "~" {
-			dir, _ = os.UserHomeDir()
-		} else if strings.HasPrefix(dir, "~/") {
-			home, _ := os.UserHomeDir()
-			dir = filepath.Join(home, dir[2:])
-		} else if !filepath.IsAbs(dir) {
-			dir = filepath.Join(p.Path, dir)
-		}
-		dir = filepath.Clean(dir)
-		if info, err := os.Stat(dir); err == nil && info.IsDir() {
-			p.NavigateTo(dir, "")
-			a.CmdLine.SetPath(p.Path)
-		}
+	if p.IsRemote() {
+		a.showRemoteError("Execute command")
 		return
 	}
 

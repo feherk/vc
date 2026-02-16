@@ -69,10 +69,10 @@ func NewPanel(path string, fs vfs.FileSystem) *Panel {
 }
 
 // loadEntries reads the current directory and populates entries (no rendering).
-func (p *Panel) loadEntries() {
+func (p *Panel) loadEntries() error {
 	dirEntries, err := p.FS.ReadDir(p.Path)
 	if err != nil {
-		return
+		return err
 	}
 
 	p.Entries = make([]model.FileEntry, 0, len(dirEntries)+1)
@@ -102,6 +102,7 @@ func (p *Panel) loadEntries() {
 	}
 
 	SortEntries(p.Entries, p.SortMode)
+	return nil
 }
 
 // LoadDir reads the current directory, populates entries, and renders.
@@ -206,10 +207,21 @@ func (p *Panel) GoParent() bool {
 
 // NavigateTo changes to a new directory, optionally focusing on a named entry.
 func (p *Panel) NavigateTo(newPath string, focusName string) {
+	oldPath := p.Path
+	oldEntries := p.Entries
+	oldCursor := p.Cursor
+
 	p.Path = newPath
 	p.Selection.Clear()
 	p.Cursor = 0
-	p.loadEntries()
+
+	if err := p.loadEntries(); err != nil {
+		// Restore previous state on error
+		p.Path = oldPath
+		p.Entries = oldEntries
+		p.Cursor = oldCursor
+		return
+	}
 
 	if focusName != "" {
 		for i, e := range p.Entries {

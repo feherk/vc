@@ -31,11 +31,11 @@ func New() *CmdLine {
 		case tcell.KeyEnter:
 			text := input.GetText()
 			input.SetText("")
-			if c.executeFunc != nil && text != "" {
-				c.executeFunc(text)
-			}
 			if c.focusFunc != nil {
 				c.focusFunc(false)
+			}
+			if c.executeFunc != nil && text != "" {
+				c.executeFunc(text)
 			}
 		case tcell.KeyEscape:
 			input.SetText("")
