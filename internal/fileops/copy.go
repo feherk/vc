@@ -39,12 +39,17 @@ func copyFile(ctx context.Context, srcFS vfs.FileSystem, src string, dstFS vfs.F
 	}
 	defer df.Close()
 
+	// Fast path: use io.Copy which leverages sftp.File's concurrent ReadFrom/WriteTo
+	if onProgress == nil {
+		_, err := io.Copy(df, sf)
+		return err
+	}
+
 	total := srcInfo.Size
 	var copied int64
 
-	buf := make([]byte, 32*1024)
+	buf := make([]byte, 256*1024)
 	for {
-		// Check for cancellation
 		if err := ctx.Err(); err != nil {
 			df.Close()
 			dstFS.Remove(dst)
@@ -57,13 +62,11 @@ func copyFile(ctx context.Context, srcFS vfs.FileSystem, src string, dstFS vfs.F
 				return writeErr
 			}
 			copied += int64(n)
-			if onProgress != nil {
-				onProgress(Progress{
-					FileName: srcFS.Base(src),
-					Total:    total,
-					Done:     copied,
-				})
-			}
+			onProgress(Progress{
+				FileName: srcFS.Base(src),
+				Total:    total,
+				Done:     copied,
+			})
 		}
 		if readErr == io.EOF {
 			break

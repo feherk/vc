@@ -671,56 +671,16 @@ func (a *App) CopyFiles() {
 			target = filepath.Join(src.Path, target)
 		}
 
-		ctx, cancel := context.WithCancel(context.Background())
-
-		pd := dialog.NewProgressDialog("Copying", func() {
-			cancel()
-		})
-		a.showDialog("progress", pd)
-
-		go func() {
-			var lastUpdate time.Time
-			fileCount := len(entries)
-
-			for i, entry := range entries {
+		a.runWithSpinner("Copying", func() error {
+			for _, entry := range entries {
 				srcPath := srcFS.Join(src.Path, entry.Name)
 				dstPath := dstFS.Join(target, entry.Name)
-
-				fileIdx := i + 1
-				err := fileops.Copy(ctx, srcFS, srcPath, dstFS, dstPath, func(p fileops.Progress) {
-					p.FileIndex = fileIdx
-					p.FileCount = fileCount
-					now := time.Now()
-					if now.Sub(lastUpdate) < 100*time.Millisecond {
-						return
-					}
-					lastUpdate = now
-					a.TviewApp.QueueUpdateDraw(func() {
-						pd.Update(p)
-					})
-				})
-				if err != nil {
-					a.TviewApp.QueueUpdateDraw(func() {
-						a.closeDialog("progress")
-						if ctx.Err() == nil {
-							dialog.ShowError(a.Pages, "Copy error: "+err.Error(), func() {
-								a.closeDialog("error")
-							})
-							a.ModalOpen = true
-							a.TviewApp.SetFocus(a.Pages)
-						}
-					})
-					return
+				if err := fileops.Copy(context.Background(), srcFS, srcPath, dstFS, dstPath, nil); err != nil {
+					return err
 				}
 			}
-
-			a.TviewApp.QueueUpdateDraw(func() {
-				a.closeDialog("progress")
-				src.Selection.Clear()
-				src.Refresh()
-				dst.Refresh()
-			})
-		}()
+			return nil
+		})
 	}, func() {
 		a.closeDialog("input")
 	})
@@ -757,59 +717,19 @@ func (a *App) MoveFiles() {
 			target = filepath.Join(src.Path, target)
 		}
 
-		ctx, cancel := context.WithCancel(context.Background())
-
-		pd := dialog.NewProgressDialog("Moving", func() {
-			cancel()
-		})
-		a.showDialog("progress", pd)
-
-		go func() {
-			var lastUpdate time.Time
-			fileCount := len(entries)
-
-			for i, entry := range entries {
+		a.runWithSpinner("Moving", func() error {
+			for _, entry := range entries {
 				srcPath := srcFS.Join(src.Path, entry.Name)
 				dstPath := target
 				if len(entries) > 1 {
 					dstPath = dstFS.Join(target, entry.Name)
 				}
-
-				fileIdx := i + 1
-				err := fileops.Move(ctx, srcFS, srcPath, dstFS, dstPath, func(p fileops.Progress) {
-					p.FileIndex = fileIdx
-					p.FileCount = fileCount
-					now := time.Now()
-					if now.Sub(lastUpdate) < 100*time.Millisecond {
-						return
-					}
-					lastUpdate = now
-					a.TviewApp.QueueUpdateDraw(func() {
-						pd.Update(p)
-					})
-				})
-				if err != nil {
-					a.TviewApp.QueueUpdateDraw(func() {
-						a.closeDialog("progress")
-						if ctx.Err() == nil {
-							dialog.ShowError(a.Pages, "Move error: "+err.Error(), func() {
-								a.closeDialog("error")
-							})
-							a.ModalOpen = true
-							a.TviewApp.SetFocus(a.Pages)
-						}
-					})
-					return
+				if err := fileops.Move(context.Background(), srcFS, srcPath, dstFS, dstPath, nil); err != nil {
+					return err
 				}
 			}
-
-			a.TviewApp.QueueUpdateDraw(func() {
-				a.closeDialog("progress")
-				src.Selection.Clear()
-				src.Refresh()
-				dst.Refresh()
-			})
-		}()
+			return nil
+		})
 	}, func() {
 		a.closeDialog("input")
 	})

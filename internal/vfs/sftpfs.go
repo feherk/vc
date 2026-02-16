@@ -64,7 +64,7 @@ func NewSFTPFS(cfg config.ServerConfig) (*SFTPFS, error) {
 		return nil, fmt.Errorf("SSH dial %s: %w", addr, err)
 	}
 
-	sftpClient, err := sftp.NewClient(sshClient)
+	sftpClient, err := sftp.NewClient(sshClient, sftp.UseConcurrentWrites(true))
 	if err != nil {
 		sshClient.Close()
 		return nil, fmt.Errorf("SFTP client: %w", err)
