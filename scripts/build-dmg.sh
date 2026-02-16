@@ -15,6 +15,10 @@ APP_BUNDLE="$BUILD_DIR/$APP_NAME.app"
 DMG_NAME="VC-${VERSION}-macOS"
 DMG_PATH="$PROJECT_DIR/dist/$DMG_NAME.dmg"
 
+# Code signing
+SIGN_IDENTITY="Developer ID Application: Károly Fehér (YG66KQ8KDT)"
+NOTARIZE_PROFILE="vc-notarize"
+
 echo "==> Building VC v${VERSION} DMG installer"
 
 # Clean previous build
@@ -125,7 +129,15 @@ cat > "$APP_BUNDLE/Contents/Info.plist" << PLIST
 </plist>
 PLIST
 
-# ── 4. Create DMG ───────────────────────────────────────────────────────
+# ── 4. Code sign ────────────────────────────────────────────────────────
+echo "==> Signing app bundle..."
+codesign --force --options runtime --sign "$SIGN_IDENTITY" "$APP_BUNDLE/Contents/Resources/vc"
+codesign --force --options runtime --sign "$SIGN_IDENTITY" "$APP_BUNDLE"
+
+echo "==> Verifying signature..."
+codesign --verify --verbose "$APP_BUNDLE"
+
+# ── 5. Create DMG ───────────────────────────────────────────────────────
 echo "==> Creating DMG..."
 
 DMG_STAGING="$BUILD_DIR/dmg-staging"
@@ -157,11 +169,22 @@ fi
 hdiutil convert "$DMG_RW" -format UDZO -o "$DMG_PATH"
 rm -f "$DMG_RW"
 
-# ── 5. Clean up ─────────────────────────────────────────────────────────
+# Sign the DMG itself
+echo "==> Signing DMG..."
+codesign --force --sign "$SIGN_IDENTITY" "$DMG_PATH"
+
+# ── 6. Notarize ─────────────────────────────────────────────────────────
+echo "==> Submitting for notarization (this may take a few minutes)..."
+xcrun notarytool submit "$DMG_PATH" --keychain-profile "$NOTARIZE_PROFILE" --wait
+
+echo "==> Stapling notarization ticket..."
+xcrun stapler staple "$DMG_PATH"
+
+# ── 7. Clean up ─────────────────────────────────────────────────────────
 rm -rf "$BUILD_DIR"
 
 echo ""
-echo "==> Done! DMG created at:"
+echo "==> Done! Signed & notarized DMG created at:"
 echo "    dist/$DMG_NAME.dmg"
 echo ""
 echo "    Size: $(du -h "$DMG_PATH" | cut -f1)"
