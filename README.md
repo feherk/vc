@@ -25,6 +25,24 @@ Built with Go, using [tview](https://github.com/rivo/tview) and [tcell](https://
 
 Download the latest release for your platform from the [Releases](https://github.com/feherk/vc/releases) page.
 
+### Linux
+
+```bash
+curl -L -o vc https://github.com/feherk/vc/releases/latest/download/vc-linux-amd64
+chmod +x vc
+sudo mv vc /usr/local/bin/
+```
+
+### Windows (cmd)
+
+```cmd
+curl -L -o vc.exe https://github.com/feherk/vc/releases/latest/download/vc-windows-amd64.exe
+```
+
+### macOS
+
+Download `VC-x.x.x-macOS.dmg` from [Releases](https://github.com/feherk/vc/releases) and drag VC to Applications.
+
 ### Build from source
 
 ```bash
