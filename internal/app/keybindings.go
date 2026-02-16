@@ -26,6 +26,7 @@ func (a *App) SetupKeyBindings() {
 			return nil
 
 		case tcell.KeyF10:
+			a.SaveConfig()
 			a.TviewApp.Stop()
 			return nil
 
@@ -66,24 +67,42 @@ func (a *App) SetupKeyBindings() {
 			a.ActivateMenu()
 			return nil
 
+		case tcell.KeyF12:
+			e := a.GetActivePanel().CurrentEntry()
+			if e != nil && e.Name != ".." {
+				if !a.CmdLineFocused {
+					a.CmdLineFocused = true
+					a.CmdLine.SetText("")
+					a.TviewApp.SetFocus(a.CmdLine)
+				}
+				a.CmdLine.SetText(a.CmdLine.GetText() + e.Name)
+			}
+			return nil
+
 		case tcell.KeyCtrlR:
 			a.GetActivePanel().Refresh()
 			a.GetInactivePanel().Refresh()
 			return nil
 
-		case tcell.KeyInsert, tcell.KeyF13:
+		case tcell.KeyInsert, tcell.KeyF11:
 			a.GetActivePanel().ToggleSelection()
 			return nil
 
 		case tcell.KeyBackspace, tcell.KeyBackspace2:
-			if !a.CmdLineFocused {
-				p := a.GetActivePanel()
-				if atRoot := p.GoParent(); atRoot && !p.IsRemote() {
-					a.ShowDriveSelector()
+			if a.CmdLineFocused {
+				if a.CmdLine.GetText() == "" {
+					a.CmdLineFocused = false
+					a.focusActiveTable()
+					return nil
 				}
-				a.CmdLine.SetPath(p.Path)
-				return nil
+				return event
 			}
+			p := a.GetActivePanel()
+			if atRoot := p.GoParent(); atRoot && !p.IsRemote() {
+				a.ShowDriveSelector()
+			}
+			a.CmdLine.SetPath(p.Path)
+			return nil
 
 		case tcell.KeyEnter:
 			if a.CmdLineFocused {
@@ -151,6 +170,7 @@ func (a *App) SetupKeyBindings() {
 
 // switchPanel toggles the active panel.
 func (a *App) switchPanel() {
+	a.CmdLineFocused = false
 	if a.activePanel == 0 {
 		a.activePanel = 1
 		a.TviewApp.SetFocus(a.RightPanel.Table)

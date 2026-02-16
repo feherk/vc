@@ -7,8 +7,9 @@ import (
 )
 
 type PanelConfig struct {
-	Mode     int `json:"mode"`
-	SortMode int `json:"sort_mode"`
+	Mode     int    `json:"mode"`
+	SortMode int    `json:"sort_mode"`
+	Path     string `json:"path,omitempty"`
 }
 
 type ServerConfig struct {

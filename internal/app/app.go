@@ -3,6 +3,7 @@ package app
 import (
 	"archive/zip"
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"os"
@@ -737,6 +738,25 @@ func (a *App) ExecuteCommand(cmd string) {
 		return
 	}
 
+	// Handle "cd" command: navigate the active panel
+	if strings.TrimSpace(cmd) == "cd" || strings.HasPrefix(strings.TrimSpace(cmd), "cd ") {
+		dir := strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(cmd), "cd"))
+		if dir == "" || dir == "~" {
+			dir, _ = os.UserHomeDir()
+		} else if strings.HasPrefix(dir, "~/") {
+			home, _ := os.UserHomeDir()
+			dir = filepath.Join(home, dir[2:])
+		} else if !filepath.IsAbs(dir) {
+			dir = filepath.Join(p.Path, dir)
+		}
+		dir = filepath.Clean(dir)
+		if info, err := os.Stat(dir); err == nil && info.IsDir() {
+			p.NavigateTo(dir, "")
+			a.CmdLine.SetPath(p.Path)
+		}
+		return
+	}
+
 	a.TviewApp.Suspend(func() {
 		c := exec.Command("sh", "-c", cmd)
 		c.Dir = p.Path
@@ -792,11 +812,13 @@ func (a *App) showMenuDropdown() {
 			OnMove:      func() { a.DeactivateMenu(); a.MoveFiles() },
 			OnMkDir:     func() { a.DeactivateMenu(); a.MakeDir() },
 			OnDelete:    func() { a.DeactivateMenu(); a.DeleteFiles() },
-			OnQuit:      func() { a.TviewApp.Stop() },
+			OnQuit:      func() { a.SaveConfig(); a.TviewApp.Stop() },
 			OnSwapPanels: func() { a.DeactivateMenu(); a.swapPanels() },
 			OnRefresh:   func() { a.DeactivateMenu(); a.GetActivePanel().Refresh(); a.GetInactivePanel().Refresh() },
-			OnViewFile:  func() { a.DeactivateMenu(); a.ViewFile() },
-			OnEditFile:  func() { a.DeactivateMenu(); a.EditFile() },
+			OnViewFile:     func() { a.DeactivateMenu(); a.ViewFile() },
+			OnEditFile:     func() { a.DeactivateMenu(); a.EditFile() },
+			OnExportConfig: func() { a.DeactivateMenu(); a.ExportConfig() },
+			OnImportConfig: func() { a.DeactivateMenu(); a.ImportConfig() },
 		}
 	}
 
@@ -816,43 +838,44 @@ func (a *App) showMenuDropdown() {
 		return
 	}
 
-	// Build a tview.List for the dropdown
-	list := tview.NewList()
-	list.ShowSecondaryText(false)
-	list.SetBackgroundColor(theme.ColorDialogBg)
-	list.SetMainTextColor(theme.ColorDialogFg)
-	list.SetSelectedTextColor(tcell.ColorBlack)
-	list.SetSelectedBackgroundColor(tcell.NewRGBColor(0, 170, 170))
-	list.SetHighlightFullLine(true)
-	list.SetBorder(true)
-	list.SetBorderColor(theme.ColorDialogBorder)
-	list.SetTitle("")
+	dd := menu.NewDropdown()
+	dd.SetItems(items)
+	dd.Visible = true
 
+	// Calculate position
+	xPos := 0
+	for i := 0; i < a.MenuBar.Selected; i++ {
+		xPos += len(a.MenuBar.Items[i])
+	}
+	dd.X = xPos
+	dd.Y = 1
+
+	// Calculate size for tview rect
 	maxWidth := 0
 	for _, item := range items {
-		label := item.Label
-		if item.Key != "" {
-			label += "  " + item.Key
-		}
-		if len(label) > maxWidth {
-			maxWidth = len(label)
-		}
-
-		if item.IsSep {
-			list.AddItem("────────────────", "", 0, nil)
-		} else {
-			action := item.Action
-			list.AddItem(label, "", 0, func() {
-				if action != nil {
-					action()
-				}
-			})
+		w := len(item.Label) + len(item.Key) + 4
+		if w > maxWidth {
+			maxWidth = w
 		}
 	}
+	width := maxWidth + 2
+	height := len(items) + 2
+	dd.SetRect(xPos, 1, width, height)
 
-	// Handle keys within the list
-	list.SetInputCapture(func(event *tcell.EventKey) *tcell.EventKey {
+	dd.SetInputCapture(func(event *tcell.EventKey) *tcell.EventKey {
 		switch event.Key() {
+		case tcell.KeyDown:
+			dd.MoveDown()
+			return nil
+		case tcell.KeyUp:
+			dd.MoveUp()
+			return nil
+		case tcell.KeyEnter:
+			action := dd.CurrentAction()
+			if action != nil {
+				action()
+			}
+			return nil
 		case tcell.KeyLeft:
 			a.MenuBar.MoveLeft()
 			a.showMenuDropdown()
@@ -865,29 +888,16 @@ func (a *App) showMenuDropdown() {
 			a.DeactivateMenu()
 			return nil
 		case tcell.KeyF10:
+			a.SaveConfig()
 			a.TviewApp.Stop()
 			return nil
 		}
 		return event
 	})
 
-	// Calculate position
-	xPos := 0
-	for i := 0; i < a.MenuBar.Selected; i++ {
-		xPos += len(a.MenuBar.Items[i])
-	}
-
-	width := maxWidth + 4
-	if width < 16 {
-		width = 16
-	}
-	height := len(items) + 2
-
-	list.SetRect(xPos, 1, width, height)
-
 	a.Pages.RemovePage("dropdown")
-	a.Pages.AddPage("dropdown", list, false, true) // false = don't resize to fullscreen
-	a.TviewApp.SetFocus(list)
+	a.Pages.AddPage("dropdown", dd, false, true)
+	a.TviewApp.SetFocus(dd)
 }
 
 func (a *App) setSortMode(mode panel.SortMode) {
@@ -902,12 +912,119 @@ func (a *App) setSortModeOn(p *panel.Panel, mode panel.SortMode) {
 	a.SaveConfig()
 }
 
-// SaveConfig persists panel display modes and sort modes.
+// SaveConfig persists panel display modes, sort modes, and paths.
 func (a *App) SaveConfig() {
+	leftPath := ""
+	if a.LeftPanel.FS.IsLocal() {
+		leftPath = a.LeftPanel.Path
+	}
+	rightPath := ""
+	if a.RightPanel.FS.IsLocal() {
+		rightPath = a.RightPanel.Path
+	}
 	config.Save(&config.Config{
-		LeftPanel:  config.PanelConfig{Mode: int(a.LeftPanel.Mode), SortMode: int(a.LeftPanel.SortMode)},
-		RightPanel: config.PanelConfig{Mode: int(a.RightPanel.Mode), SortMode: int(a.RightPanel.SortMode)},
+		LeftPanel:  config.PanelConfig{Mode: int(a.LeftPanel.Mode), SortMode: int(a.LeftPanel.SortMode), Path: leftPath},
+		RightPanel: config.PanelConfig{Mode: int(a.RightPanel.Mode), SortMode: int(a.RightPanel.SortMode), Path: rightPath},
 	})
+}
+
+// ExportConfig exports the full config (panels + servers) to a user-specified file.
+func (a *App) ExportConfig() {
+	dialog.ShowInput(a.Pages, "Export config", "Export config to:", "vc-config.json", func(target string) {
+		a.closeDialog("input")
+		if target == "" {
+			return
+		}
+
+		cfg := config.Load()
+		data, err := json.MarshalIndent(cfg, "", "  ")
+		if err != nil {
+			dialog.ShowError(a.Pages, "Export error: "+err.Error(), func() {
+				a.closeDialog("error")
+			})
+			a.ModalOpen = true
+			a.TviewApp.SetFocus(a.Pages)
+			return
+		}
+
+		if err := os.WriteFile(target, data, 0600); err != nil {
+			dialog.ShowError(a.Pages, "Export error: "+err.Error(), func() {
+				a.closeDialog("error")
+			})
+			a.ModalOpen = true
+			a.TviewApp.SetFocus(a.Pages)
+			return
+		}
+	}, func() {
+		a.closeDialog("input")
+	})
+	a.ModalOpen = true
+	a.TviewApp.SetFocus(a.Pages)
+}
+
+// ImportConfig imports config from a user-specified file, merging servers.
+func (a *App) ImportConfig() {
+	dialog.ShowInput(a.Pages, "Import config", "Import config from:", "vc-config.json", func(target string) {
+		a.closeDialog("input")
+		if target == "" {
+			return
+		}
+
+		data, err := os.ReadFile(target)
+		if err != nil {
+			dialog.ShowError(a.Pages, "Import error: "+err.Error(), func() {
+				a.closeDialog("error")
+			})
+			a.ModalOpen = true
+			a.TviewApp.SetFocus(a.Pages)
+			return
+		}
+
+		var imported config.Config
+		if err := json.Unmarshal(data, &imported); err != nil {
+			dialog.ShowError(a.Pages, "Import error: "+err.Error(), func() {
+				a.closeDialog("error")
+			})
+			a.ModalOpen = true
+			a.TviewApp.SetFocus(a.Pages)
+			return
+		}
+
+		// Apply panel settings
+		a.LeftPanel.Mode = panel.DisplayMode(imported.LeftPanel.Mode)
+		a.LeftPanel.SortMode = panel.SortMode(imported.LeftPanel.SortMode)
+		if imported.LeftPanel.Path != "" {
+			a.LeftPanel.NavigateTo(imported.LeftPanel.Path, "")
+		}
+		a.RightPanel.Mode = panel.DisplayMode(imported.RightPanel.Mode)
+		a.RightPanel.SortMode = panel.SortMode(imported.RightPanel.SortMode)
+		if imported.RightPanel.Path != "" {
+			a.RightPanel.NavigateTo(imported.RightPanel.Path, "")
+		}
+
+		// Merge servers: imported overwrites existing by name, new ones are appended
+		current := config.Load()
+		serverMap := make(map[string]config.ServerConfig)
+		for _, s := range current.Servers {
+			serverMap[s.Name] = s
+		}
+		for _, s := range imported.Servers {
+			serverMap[s.Name] = s
+		}
+		merged := make([]config.ServerConfig, 0, len(serverMap))
+		for _, s := range serverMap {
+			merged = append(merged, s)
+		}
+
+		a.saveConfigWithServers(&config.Config{Servers: merged})
+		a.LeftPanel.Refresh()
+		a.RightPanel.Refresh()
+		a.CmdLine.SetPath(a.GetActivePanel().Path)
+	}, func() {
+		a.closeDialog("input")
+	})
+	a.ModalOpen = true
+	a.TviewApp.SetFocus(a.Pages)
 }
 
 func (a *App) swapPanels() {
@@ -1044,8 +1161,16 @@ func (a *App) disconnectPanel(p *panel.Panel) {
 }
 
 func (a *App) saveConfigWithServers(cfg *config.Config) {
-	cfg.LeftPanel = config.PanelConfig{Mode: int(a.LeftPanel.Mode), SortMode: int(a.LeftPanel.SortMode)}
-	cfg.RightPanel = config.PanelConfig{Mode: int(a.RightPanel.Mode), SortMode: int(a.RightPanel.SortMode)}
+	leftPath := ""
+	if a.LeftPanel.FS.IsLocal() {
+		leftPath = a.LeftPanel.Path
+	}
+	rightPath := ""
+	if a.RightPanel.FS.IsLocal() {
+		rightPath = a.RightPanel.Path
+	}
+	cfg.LeftPanel = config.PanelConfig{Mode: int(a.LeftPanel.Mode), SortMode: int(a.LeftPanel.SortMode), Path: leftPath}
+	cfg.RightPanel = config.PanelConfig{Mode: int(a.RightPanel.Mode), SortMode: int(a.RightPanel.SortMode), Path: rightPath}
 	config.Save(cfg)
 }
 

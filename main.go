@@ -6,9 +6,10 @@ import (
 	"os"
 
 	application "github.com/feherkaroly/vc/internal/app"
+	"github.com/feherkaroly/vc/internal/config"
 )
 
-var Version = "2.0.1"
+var Version = "2.1.0"
 
 func main() {
 	showVersion := flag.Bool("version", false, "Show version")
@@ -19,6 +20,21 @@ func main() {
 	if *showVersion {
 		fmt.Printf("vc %s\n", Version)
 		return
+	}
+
+	// Use saved paths if no explicit arguments given
+	if *leftDir == "." && *rightDir == "." {
+		cfg := config.Load()
+		if cfg.LeftPanel.Path != "" {
+			if info, err := os.Stat(cfg.LeftPanel.Path); err == nil && info.IsDir() {
+				*leftDir = cfg.LeftPanel.Path
+			}
+		}
+		if cfg.RightPanel.Path != "" {
+			if info, err := os.Stat(cfg.RightPanel.Path); err == nil && info.IsDir() {
+				*rightDir = cfg.RightPanel.Path
+			}
+		}
 	}
 
 	// Resolve relative paths
