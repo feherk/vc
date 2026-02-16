@@ -1,8 +1,6 @@
 package dialog
 
 import (
-	"fmt"
-
 	"github.com/gdamore/tcell/v2"
 	"github.com/rivo/tview"
 
@@ -24,10 +22,9 @@ type ServerDialogCallbacks struct {
 // ShowServerDialog displays the server list dialog.
 func ShowServerDialog(pages *tview.Pages, servers []config.ServerConfig, cb ServerDialogCallbacks) {
 	list := tview.NewList()
-	list.ShowSecondaryText(true)
+	list.ShowSecondaryText(false)
 	list.SetBackgroundColor(theme.ColorDialogBg)
 	list.SetMainTextColor(theme.ColorDialogFg)
-	list.SetSecondaryTextColor(tcell.NewRGBColor(0, 170, 170))
 	list.SetSelectedTextColor(tcell.ColorBlack)
 	list.SetSelectedBackgroundColor(tcell.NewRGBColor(0, 170, 170))
 	list.SetHighlightFullLine(true)
@@ -37,12 +34,7 @@ func ShowServerDialog(pages *tview.Pages, servers []config.ServerConfig, cb Serv
 		if cb.IsConnected != nil && cb.IsConnected(srv.Name) {
 			prefix = "* "
 		}
-		label := prefix + srv.Name
-		detail := fmt.Sprintf("  %s://%s@%s", srv.Protocol, srv.User, srv.Host)
-		if srv.Port != 0 {
-			detail += fmt.Sprintf(":%d", srv.Port)
-		}
-		list.AddItem(label, detail, 0, nil)
+		list.AddItem(prefix+srv.Name, "", 0, nil)
 	}
 	if len(servers) == 0 {
 		list.AddItem("  (no servers configured)", "", 0, nil)
@@ -102,8 +94,8 @@ func ShowServerDialog(pages *tview.Pages, servers []config.ServerConfig, cb Serv
 	frame.SetTitleColor(theme.ColorHeaderFg)
 	frame.AddText(" C-Connect  A-Add  E-Edit  D-Delete  X-Disconnect  Esc-Close ", false, tview.AlignCenter, tcell.ColorYellow)
 
-	dialogWidth := 64
-	dialogHeight := len(servers)*2 + 6
+	dialogWidth := 48
+	dialogHeight := len(servers) + 4
 	if dialogHeight < 10 {
 		dialogHeight = 10
 	}
