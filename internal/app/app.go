@@ -126,8 +126,11 @@ func (a *App) buildLayout() {
 // Run starts the application.
 func (a *App) Run() error {
 	defer a.ConnMgr.DisconnectAll()
+	saved := a.activePanel
 	a.TviewApp.SetRoot(a.Pages, true)
+	a.activePanel = saved
 	a.TviewApp.SetFocus(a.activeTable())
+	a.updatePanelStates()
 	return a.TviewApp.Run()
 }
 
