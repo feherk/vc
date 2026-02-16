@@ -913,19 +913,10 @@ func (a *App) setSortModeOn(p *panel.Panel, mode panel.SortMode) {
 }
 
 // SaveConfig persists panel display modes, sort modes, and paths.
+// It preserves existing servers from the config file.
 func (a *App) SaveConfig() {
-	leftPath := ""
-	if a.LeftPanel.FS.IsLocal() {
-		leftPath = a.LeftPanel.Path
-	}
-	rightPath := ""
-	if a.RightPanel.FS.IsLocal() {
-		rightPath = a.RightPanel.Path
-	}
-	config.Save(&config.Config{
-		LeftPanel:  config.PanelConfig{Mode: int(a.LeftPanel.Mode), SortMode: int(a.LeftPanel.SortMode), Path: leftPath},
-		RightPanel: config.PanelConfig{Mode: int(a.RightPanel.Mode), SortMode: int(a.RightPanel.SortMode), Path: rightPath},
-	})
+	cfg := config.Load()
+	a.saveConfigWithServers(cfg)
 }
 
 // ExportConfig exports the full config (panels + servers) to a user-specified file.
