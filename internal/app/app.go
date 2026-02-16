@@ -126,7 +126,9 @@ func (a *App) buildLayout() {
 // Run starts the application.
 func (a *App) Run() error {
 	defer a.ConnMgr.DisconnectAll()
-	return a.TviewApp.SetRoot(a.Pages, true).Run()
+	a.TviewApp.SetRoot(a.Pages, true)
+	a.TviewApp.SetFocus(a.activeTable())
+	return a.TviewApp.Run()
 }
 
 // GetActivePanel returns the currently focused panel.
