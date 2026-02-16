@@ -1,8 +1,14 @@
 package app
 
 import (
+	"archive/tar"
 	"archive/zip"
+	"compress/gzip"
 	"context"
+	"crypto/aes"
+	"crypto/cipher"
+	"crypto/rand"
+	"encoding/binary"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -14,6 +20,7 @@ import (
 
 	"github.com/gdamore/tcell/v2"
 	"github.com/rivo/tview"
+	"golang.org/x/crypto/argon2"
 
 	"github.com/feherkaroly/vc/internal/cmdline"
 	"github.com/feherkaroly/vc/internal/config"
@@ -85,12 +92,18 @@ func New(leftPath, rightPath string) *App {
 
 	a.buildLayout()
 
-	a.LeftPanel.SetActive(true)
-	a.RightPanel.SetActive(false)
-	a.activePanel = 0
+	a.activePanel = cfg.ActivePanel
+	if a.activePanel == 1 {
+		a.LeftPanel.SetActive(false)
+		a.RightPanel.SetActive(true)
+	} else {
+		a.activePanel = 0
+		a.LeftPanel.SetActive(true)
+		a.RightPanel.SetActive(false)
+	}
 
 	a.SetupKeyBindings()
-	a.TviewApp.SetFocus(a.LeftPanel.Table)
+	a.TviewApp.SetFocus(a.activeTable())
 
 	return a
 }
@@ -240,11 +253,12 @@ func (a *App) viewZipContents(path string) {
 	a.showDialog("viewer", v)
 }
 
-// ZipFiles handles F2 — compress selected items or current item into a zip archive.
-func (a *App) ZipFiles() {
+// CompressFiles handles F2 — compress selected items into zip/tar/tar.gz archive,
+// or encrypt/decrypt a single file.
+func (a *App) CompressFiles() {
 	p := a.GetActivePanel()
 	if p.IsRemote() {
-		a.showRemoteError("Zip")
+		a.showRemoteError("Compress")
 		return
 	}
 	entries := p.GetSelectedOrCurrent()
@@ -254,42 +268,157 @@ func (a *App) ZipFiles() {
 
 	desc := entryNames(entries)
 
-	var zipName string
-	if p.Selection.Count() > 0 {
-		zipName = fmt.Sprintf("archiv_%d.zip", time.Now().UnixNano())
-	} else {
-		name := entries[0].Name
-		ext := filepath.Ext(name)
-		if ext != "" {
-			name = strings.TrimSuffix(name, ext)
-		}
-		zipName = name + ".zip"
-	}
+	singleFile := len(entries) == 1 && !entries[0].IsDir
+	isEnc := singleFile && strings.HasSuffix(strings.ToLower(entries[0].Name), ".enc")
 
-	dialog.ShowConfirm(a.Pages, "Zip", "Compress "+desc+" to "+zipName+"?", func(yes bool) {
-		a.closeDialog("confirm")
-		if !yes {
+	dialog.ShowFormatDialog(a.Pages, singleFile, isEnc, func(format string) {
+		a.closeDialog("format")
+
+		if format == "encrypt" {
+			srcPath := filepath.Join(p.Path, entries[0].Name)
+			dialog.ShowPasswordDialog(a.Pages, "Encrypt", true, func(password string) {
+				a.closeDialog("password")
+				dstName := fmt.Sprintf("enc_%d.enc", time.Now().Unix())
+				dstPath := filepath.Join(p.Path, dstName)
+				a.runWithSpinner(dstName, func() error {
+					return encryptFile(srcPath, dstPath, password)
+				})
+			}, func() {
+				a.closeDialog("password")
+			})
+			a.ModalOpen = true
+			a.TviewApp.SetFocus(a.Pages)
 			return
 		}
 
-		zipPath := filepath.Join(p.Path, zipName)
-
-		go func() {
-			err := createZip(zipPath, p.Path, entries)
-			a.TviewApp.QueueUpdateDraw(func() {
-				if err != nil {
-					dialog.ShowError(a.Pages, "Zip error: "+err.Error(), func() {
-						a.closeDialog("error")
-					})
-					a.ModalOpen = true
-					a.TviewApp.SetFocus(a.Pages)
-					return
-				}
-				p.Selection.Clear()
-				p.NavigateTo(p.Path, zipName)
-				a.GetInactivePanel().Refresh()
+		if format == "decrypt" {
+			srcPath := filepath.Join(p.Path, entries[0].Name)
+			dialog.ShowPasswordDialog(a.Pages, "Decrypt", false, func(password string) {
+				a.closeDialog("password")
+				a.runWithSpinner(entries[0].Name, func() error {
+					_, err := decryptFile(srcPath, p.Path, password)
+					return err
+				})
+			}, func() {
+				a.closeDialog("password")
 			})
-		}()
+			a.ModalOpen = true
+			a.TviewApp.SetFocus(a.Pages)
+			return
+		}
+
+		var ext string
+		switch format {
+		case "tar":
+			ext = ".tar"
+		case "tar.gz":
+			ext = ".tar.gz"
+		default:
+			ext = ".zip"
+		}
+
+		var baseName string
+		if p.Selection.Count() > 0 {
+			baseName = fmt.Sprintf("archiv_%d", time.Now().UnixNano())
+		} else {
+			baseName = entries[0].Name
+			if e := filepath.Ext(baseName); e != "" {
+				baseName = strings.TrimSuffix(baseName, e)
+			}
+		}
+		archiveName := baseName + ext
+
+		dialog.ShowInput(a.Pages, "Compress", "Compress "+desc+" to:", archiveName, func(name string) {
+			a.closeDialog("input")
+			if name == "" {
+				return
+			}
+
+			srcDir := p.Path
+			archivePath := filepath.Join(srcDir, name)
+
+			// Non-modal spinner in bottom-right corner
+			spinView := tview.NewTextView()
+			spinView.SetBackgroundColor(theme.ColorDialogBg)
+			spinView.SetTextColor(theme.ColorDialogFg)
+			spinView.SetBorder(true)
+			spinView.SetBorderColor(theme.ColorDialogBorder)
+			spinView.SetTextAlign(tview.AlignCenter)
+
+			displayName := name
+			if len(displayName) > 20 {
+				displayName = displayName[:20] + "..."
+			}
+			boxW := len(displayName) + 6
+			if boxW < 18 {
+				boxW = 18
+			}
+			_, _, screenW, screenH := a.Pages.GetInnerRect()
+			spinView.SetRect(screenW-boxW-1, screenH-4, boxW, 3)
+			spinView.SetText(displayName + " |")
+
+			a.Pages.AddPage("spinner", spinView, false, true)
+			a.focusActiveTable()
+
+			go func() {
+				spinChars := [4]rune{'|', '/', '-', '\\'}
+				spinIdx := 0
+				done := make(chan struct{})
+
+				go func() {
+					ticker := time.NewTicker(150 * time.Millisecond)
+					defer ticker.Stop()
+					for {
+						select {
+						case <-done:
+							return
+						case <-ticker.C:
+							spinIdx = (spinIdx + 1) % 4
+							ch := spinChars[spinIdx]
+							a.TviewApp.QueueUpdateDraw(func() {
+								spinView.SetText(fmt.Sprintf("%s %c", displayName, ch))
+							})
+						}
+					}
+				}()
+
+				var err error
+				switch format {
+				case "tar":
+					err = createTar(archivePath, srcDir, entries, false)
+				case "tar.gz":
+					err = createTar(archivePath, srcDir, entries, true)
+				default:
+					err = createZip(archivePath, srcDir, entries)
+				}
+				close(done)
+
+				a.TviewApp.QueueUpdateDraw(func() {
+					saved := a.activePanel
+					a.Pages.RemovePage("spinner")
+					a.activePanel = saved
+					a.focusActiveTable()
+					a.updatePanelStates()
+					if err != nil {
+						dialog.ShowError(a.Pages, "Compress error: "+err.Error(), func() {
+							a.closeDialog("error")
+						})
+						a.ModalOpen = true
+						a.TviewApp.SetFocus(a.Pages)
+						return
+					}
+					p.Selection.Clear()
+					p.Refresh()
+					a.GetInactivePanel().Refresh()
+				})
+			}()
+		}, func() {
+			a.closeDialog("input")
+		})
+		a.ModalOpen = true
+		a.TviewApp.SetFocus(a.Pages)
+	}, func() {
+		a.closeDialog("format")
 	})
 	a.ModalOpen = true
 	a.TviewApp.SetFocus(a.Pages)
@@ -375,6 +504,96 @@ func addDirToZip(w *zip.Writer, dirPath, prefix string) error {
 		}
 
 		return addFileToZip(w, path, rel)
+	})
+}
+
+// createTar creates a tar (or tar.gz if compress=true) archive at tarPath.
+func createTar(tarPath, baseDir string, entries []model.FileEntry, compress bool) error {
+	f, err := os.Create(tarPath)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+
+	var tw *tar.Writer
+	if compress {
+		gw := gzip.NewWriter(f)
+		defer gw.Close()
+		tw = tar.NewWriter(gw)
+	} else {
+		tw = tar.NewWriter(f)
+	}
+	defer tw.Close()
+
+	for _, entry := range entries {
+		srcPath := filepath.Join(baseDir, entry.Name)
+		if entry.IsDir {
+			err = addDirToTar(tw, srcPath, entry.Name)
+		} else {
+			err = addFileToTar(tw, srcPath, entry.Name)
+		}
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func addFileToTar(tw *tar.Writer, filePath, nameInTar string) error {
+	f, err := os.Open(filePath)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+
+	info, err := f.Stat()
+	if err != nil {
+		return err
+	}
+
+	header, err := tar.FileInfoHeader(info, "")
+	if err != nil {
+		return err
+	}
+	header.Name = nameInTar
+
+	if err := tw.WriteHeader(header); err != nil {
+		return err
+	}
+
+	_, err = io.Copy(tw, f)
+	return err
+}
+
+func addDirToTar(tw *tar.Writer, dirPath, prefix string) error {
+	return filepath.Walk(dirPath, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+
+		if info.Mode()&os.ModeSymlink != 0 {
+			return nil
+		}
+
+		rel, err := filepath.Rel(filepath.Dir(dirPath), path)
+		if err != nil {
+			return err
+		}
+
+		if info.IsDir() {
+			header, err := tar.FileInfoHeader(info, "")
+			if err != nil {
+				return err
+			}
+			header.Name = rel + "/"
+			return tw.WriteHeader(header)
+		}
+
+		if !info.Mode().IsRegular() {
+			return nil
+		}
+
+		return addFileToTar(tw, path, rel)
 	})
 }
 
@@ -637,28 +856,15 @@ func (a *App) DeleteFiles() {
 			return
 		}
 
-		go func() {
+		a.runWithSpinner(desc, func() error {
 			for _, entry := range entries {
 				path := p.FS.Join(p.Path, entry.Name)
-				err := fileops.Delete(p.FS, path)
-				if err != nil {
-					a.TviewApp.QueueUpdateDraw(func() {
-						dialog.ShowError(a.Pages, "Delete error: "+err.Error(), func() {
-							a.closeDialog("error")
-						})
-						a.ModalOpen = true
-						a.TviewApp.SetFocus(a.Pages)
-					})
-					return
+				if err := fileops.Delete(p.FS, path); err != nil {
+					return err
 				}
 			}
-
-			a.TviewApp.QueueUpdateDraw(func() {
-				p.Selection.Clear()
-				p.Refresh()
-				a.GetInactivePanel().Refresh()
-			})
-		}()
+			return nil
+		})
 	})
 	a.ModalOpen = true
 	a.TviewApp.SetFocus(a.Pages)
@@ -1179,6 +1385,7 @@ func (a *App) saveConfigWithServers(cfg *config.Config) {
 	}
 	cfg.LeftPanel = config.PanelConfig{Mode: int(a.LeftPanel.Mode), SortMode: int(a.LeftPanel.SortMode), Path: leftPath}
 	cfg.RightPanel = config.PanelConfig{Mode: int(a.RightPanel.Mode), SortMode: int(a.RightPanel.SortMode), Path: rightPath}
+	cfg.ActivePanel = a.activePanel
 	config.Save(cfg)
 }
 
@@ -1214,4 +1421,185 @@ func entryNames(entries []model.FileEntry) string {
 		return entries[0].Name
 	}
 	return fmt.Sprintf("%d files/dirs", len(entries))
+}
+
+// runWithSpinner runs fn in a goroutine with a non-modal spinner, then refreshes panels.
+func (a *App) runWithSpinner(displayName string, fn func() error) {
+	p := a.GetActivePanel()
+
+	spinView := tview.NewTextView()
+	spinView.SetBackgroundColor(theme.ColorDialogBg)
+	spinView.SetTextColor(theme.ColorDialogFg)
+	spinView.SetBorder(true)
+	spinView.SetBorderColor(theme.ColorDialogBorder)
+	spinView.SetTextAlign(tview.AlignCenter)
+
+	if len(displayName) > 20 {
+		displayName = displayName[:20] + "..."
+	}
+	boxW := len(displayName) + 6
+	if boxW < 18 {
+		boxW = 18
+	}
+	_, _, screenW, screenH := a.Pages.GetInnerRect()
+	spinView.SetRect(screenW-boxW-1, screenH-4, boxW, 3)
+	spinView.SetText(displayName + " |")
+
+	a.Pages.AddPage("spinner", spinView, false, true)
+	a.focusActiveTable()
+
+	go func() {
+		spinChars := [4]rune{'|', '/', '-', '\\'}
+		spinIdx := 0
+		done := make(chan struct{})
+
+		go func() {
+			ticker := time.NewTicker(150 * time.Millisecond)
+			defer ticker.Stop()
+			for {
+				select {
+				case <-done:
+					return
+				case <-ticker.C:
+					spinIdx = (spinIdx + 1) % 4
+					ch := spinChars[spinIdx]
+					a.TviewApp.QueueUpdateDraw(func() {
+						spinView.SetText(fmt.Sprintf("%s %c", displayName, ch))
+					})
+				}
+			}
+		}()
+
+		err := fn()
+		close(done)
+
+		a.TviewApp.QueueUpdateDraw(func() {
+			saved := a.activePanel
+			a.Pages.RemovePage("spinner")
+			a.activePanel = saved
+			a.focusActiveTable()
+			a.updatePanelStates()
+			if err != nil {
+				dialog.ShowError(a.Pages, "Error: "+err.Error(), func() {
+					a.closeDialog("error")
+				})
+				a.ModalOpen = true
+				a.TviewApp.SetFocus(a.Pages)
+				return
+			}
+			p.Selection.Clear()
+			p.Refresh()
+			a.GetInactivePanel().Refresh()
+		})
+	}()
+}
+
+// encryptFile encrypts srcPath with AES-256-GCM and writes to dstPath.
+// File format: [2 byte filename length][filename][16 byte salt][12 byte nonce][ciphertext+tag]
+func encryptFile(srcPath, dstPath, password string) error {
+	plaintext, err := os.ReadFile(srcPath)
+	if err != nil {
+		return err
+	}
+
+	salt := make([]byte, 16)
+	if _, err := rand.Read(salt); err != nil {
+		return err
+	}
+
+	key := argon2.IDKey([]byte(password), salt, 1, 64*1024, 4, 32)
+
+	block, err := aes.NewCipher(key)
+	if err != nil {
+		return err
+	}
+
+	gcm, err := cipher.NewGCM(block)
+	if err != nil {
+		return err
+	}
+
+	nonce := make([]byte, gcm.NonceSize()) // 12 bytes
+	if _, err := rand.Read(nonce); err != nil {
+		return err
+	}
+
+	ciphertext := gcm.Seal(nil, nonce, plaintext, nil)
+
+	origName := filepath.Base(srcPath)
+
+	out, err := os.Create(dstPath)
+	if err != nil {
+		return err
+	}
+	defer out.Close()
+
+	// Write header: filename length (uint16 big-endian) + filename
+	if err := binary.Write(out, binary.BigEndian, uint16(len(origName))); err != nil {
+		return err
+	}
+	if _, err := out.Write([]byte(origName)); err != nil {
+		return err
+	}
+	// Write salt + nonce + ciphertext
+	if _, err := out.Write(salt); err != nil {
+		return err
+	}
+	if _, err := out.Write(nonce); err != nil {
+		return err
+	}
+	if _, err := out.Write(ciphertext); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+// decryptFile decrypts srcPath and writes the original file to dstDir with its original name.
+// Returns the original filename.
+func decryptFile(srcPath, dstDir, password string) (string, error) {
+	data, err := os.ReadFile(srcPath)
+	if err != nil {
+		return "", err
+	}
+
+	if len(data) < 2 {
+		return "", fmt.Errorf("invalid encrypted file")
+	}
+
+	nameLen := binary.BigEndian.Uint16(data[:2])
+	offset := 2 + int(nameLen)
+
+	if len(data) < offset+16+12 {
+		return "", fmt.Errorf("invalid encrypted file")
+	}
+
+	origName := string(data[2:offset])
+	salt := data[offset : offset+16]
+	nonce := data[offset+16 : offset+16+12]
+	ciphertext := data[offset+16+12:]
+
+	key := argon2.IDKey([]byte(password), salt, 1, 64*1024, 4, 32)
+
+	block, err := aes.NewCipher(key)
+	if err != nil {
+		return "", err
+	}
+
+	gcm, err := cipher.NewGCM(block)
+	if err != nil {
+		return "", err
+	}
+
+	plaintext, err := gcm.Open(nil, nonce, ciphertext, nil)
+	if err != nil {
+		return "", fmt.Errorf("decryption failed (wrong password?)")
+	}
+
+	dstPath := filepath.Join(dstDir, origName)
+	if err := os.WriteFile(dstPath, plaintext, 0600); err != nil {
+		return "", err
+	}
+
+	return origName, nil
 }

@@ -23,9 +23,10 @@ type ServerConfig struct {
 }
 
 type Config struct {
-	LeftPanel  PanelConfig    `json:"left_panel"`
-	RightPanel PanelConfig    `json:"right_panel"`
-	Servers    []ServerConfig `json:"servers,omitempty"`
+	LeftPanel   PanelConfig    `json:"left_panel"`
+	RightPanel  PanelConfig    `json:"right_panel"`
+	ActivePanel int            `json:"active_panel"`
+	Servers     []ServerConfig `json:"servers,omitempty"`
 }
 
 func configPath() string {

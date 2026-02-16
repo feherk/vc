@@ -36,7 +36,7 @@ func (a *App) SetupKeyBindings() {
 			return nil
 
 		case tcell.KeyF2:
-			a.ZipFiles()
+			a.CompressFiles()
 			return nil
 
 		case tcell.KeyF3:
