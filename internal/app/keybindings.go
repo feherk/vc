@@ -153,15 +153,15 @@ func (a *App) SetupKeyBindings() {
 		a.RightPanel.HandleSelectionChanged(row, col)
 	})
 
-	// Track active panel on focus
+	// Track active panel on focus (ignore during menu/modal to prevent spurious switches)
 	a.LeftPanel.Table.SetFocusFunc(func() {
-		if a.activePanel != 0 {
+		if !a.MenuActive && !a.ModalOpen && a.activePanel != 0 {
 			a.activePanel = 0
 			a.updatePanelStates()
 		}
 	})
 	a.RightPanel.Table.SetFocusFunc(func() {
-		if a.activePanel != 1 {
+		if !a.MenuActive && !a.ModalOpen && a.activePanel != 1 {
 			a.activePanel = 1
 			a.updatePanelStates()
 		}

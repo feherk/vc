@@ -252,6 +252,8 @@ func (a *App) ZipFiles() {
 		return
 	}
 
+	desc := entryNames(entries)
+
 	var zipName string
 	if p.Selection.Count() > 0 {
 		zipName = fmt.Sprintf("archiv_%d.zip", time.Now().UnixNano())
@@ -263,24 +265,34 @@ func (a *App) ZipFiles() {
 		}
 		zipName = name + ".zip"
 	}
-	zipPath := filepath.Join(p.Path, zipName)
 
-	go func() {
-		err := createZip(zipPath, p.Path, entries)
-		a.TviewApp.QueueUpdateDraw(func() {
-			if err != nil {
-				dialog.ShowError(a.Pages, "Zip error: "+err.Error(), func() {
-					a.closeDialog("error")
-				})
-				a.ModalOpen = true
-				a.TviewApp.SetFocus(a.Pages)
-				return
-			}
-			p.Selection.Clear()
-			p.NavigateTo(p.Path, zipName)
-			a.GetInactivePanel().Refresh()
-		})
-	}()
+	dialog.ShowConfirm(a.Pages, "Zip", "Compress "+desc+" to "+zipName+"?", func(yes bool) {
+		a.closeDialog("confirm")
+		if !yes {
+			return
+		}
+
+		zipPath := filepath.Join(p.Path, zipName)
+
+		go func() {
+			err := createZip(zipPath, p.Path, entries)
+			a.TviewApp.QueueUpdateDraw(func() {
+				if err != nil {
+					dialog.ShowError(a.Pages, "Zip error: "+err.Error(), func() {
+						a.closeDialog("error")
+					})
+					a.ModalOpen = true
+					a.TviewApp.SetFocus(a.Pages)
+					return
+				}
+				p.Selection.Clear()
+				p.NavigateTo(p.Path, zipName)
+				a.GetInactivePanel().Refresh()
+			})
+		}()
+	})
+	a.ModalOpen = true
+	a.TviewApp.SetFocus(a.Pages)
 }
 
 // createZip creates a zip archive at zipPath containing the given entries from baseDir.
@@ -681,7 +693,7 @@ func (a *App) QuickSearch() {
 	input.SetLabel(" Search: ")
 	input.SetFieldWidth(30)
 	input.SetBackgroundColor(theme.ColorDialogBg)
-	input.SetFieldBackgroundColor(tcell.NewRGBColor(0, 0, 128))
+	input.SetFieldBackgroundColor(theme.ColorDialogBg)
 	input.SetFieldTextColor(tcell.ColorWhite)
 	input.SetLabelColor(tcell.ColorYellow)
 	input.SetBorder(true)
@@ -921,7 +933,9 @@ func (a *App) SaveConfig() {
 
 // ExportConfig exports the full config (panels + servers) to a user-specified file.
 func (a *App) ExportConfig() {
-	dialog.ShowInput(a.Pages, "Export config", "Export config to:", "vc-config.json", func(target string) {
+	p := a.GetActivePanel()
+	defaultPath := filepath.Join(p.Path, "vc-config.json")
+	dialog.ShowInput(a.Pages, "Export config", "Export config to:", defaultPath, func(target string) {
 		a.closeDialog("input")
 		if target == "" {
 			return
@@ -946,6 +960,9 @@ func (a *App) ExportConfig() {
 			a.TviewApp.SetFocus(a.Pages)
 			return
 		}
+
+		a.GetActivePanel().Refresh()
+		a.GetInactivePanel().Refresh()
 	}, func() {
 		a.closeDialog("input")
 	})

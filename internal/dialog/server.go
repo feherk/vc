@@ -21,33 +21,40 @@ type ServerDialogCallbacks struct {
 
 // ShowServerDialog displays the server list dialog.
 func ShowServerDialog(pages *tview.Pages, servers []config.ServerConfig, cb ServerDialogCallbacks) {
-	list := tview.NewList()
-	list.ShowSecondaryText(false)
-	list.SetBackgroundColor(theme.ColorDialogBg)
-	list.SetMainTextColor(theme.ColorDialogFg)
-	list.SetSelectedTextColor(tcell.ColorBlack)
-	list.SetSelectedBackgroundColor(tcell.NewRGBColor(0, 170, 170))
-	list.SetHighlightFullLine(true)
+	table := tview.NewTable()
+	table.SetBackgroundColor(theme.ColorDialogBg)
+	table.SetSelectable(true, false)
+	table.SetSelectedStyle(tcell.StyleDefault.
+		Foreground(tcell.ColorBlack).
+		Background(tcell.NewRGBColor(0, 170, 170)))
 
-	for _, srv := range servers {
+	for i, srv := range servers {
 		prefix := "  "
 		if cb.IsConnected != nil && cb.IsConnected(srv.Name) {
 			prefix = "* "
 		}
-		list.AddItem(prefix+srv.Name, "", 0, nil)
+		cell := tview.NewTableCell(prefix + srv.Name).
+			SetTextColor(theme.ColorDialogFg).
+			SetBackgroundColor(theme.ColorDialogBg).
+			SetExpansion(1)
+		table.SetCell(i, 0, cell)
 	}
 	if len(servers) == 0 {
-		list.AddItem("  (no servers configured)", "", 0, nil)
+		cell := tview.NewTableCell("  (no servers configured)").
+			SetTextColor(theme.ColorDialogFg).
+			SetBackgroundColor(theme.ColorDialogBg).
+			SetExpansion(1)
+		table.SetCell(0, 0, cell)
 	}
 
-	// Enter on list item → connect
-	list.SetSelectedFunc(func(idx int, _, _ string, _ rune) {
-		if idx >= 0 && idx < len(servers) {
-			cb.OnConnect(servers[idx])
+	// Enter on row → connect
+	table.SetSelectedFunc(func(row, col int) {
+		if row >= 0 && row < len(servers) {
+			cb.OnConnect(servers[row])
 		}
 	})
 
-	list.SetInputCapture(func(event *tcell.EventKey) *tcell.EventKey {
+	table.SetInputCapture(func(event *tcell.EventKey) *tcell.EventKey {
 		switch event.Key() {
 		case tcell.KeyEscape:
 			cb.OnClose()
@@ -55,30 +62,30 @@ func ShowServerDialog(pages *tview.Pages, servers []config.ServerConfig, cb Serv
 		case tcell.KeyRune:
 			switch event.Rune() {
 			case 'c', 'C':
-				idx := list.GetCurrentItem()
-				if idx >= 0 && idx < len(servers) {
-					cb.OnConnect(servers[idx])
+				row, _ := table.GetSelection()
+				if row >= 0 && row < len(servers) {
+					cb.OnConnect(servers[row])
 				}
 				return nil
 			case 'a', 'A':
 				cb.OnAdd()
 				return nil
 			case 'e', 'E':
-				idx := list.GetCurrentItem()
-				if idx >= 0 && idx < len(servers) {
-					cb.OnEdit(idx, servers[idx])
+				row, _ := table.GetSelection()
+				if row >= 0 && row < len(servers) {
+					cb.OnEdit(row, servers[row])
 				}
 				return nil
 			case 'd', 'D':
-				idx := list.GetCurrentItem()
-				if idx >= 0 && idx < len(servers) {
-					cb.OnDelete(idx)
+				row, _ := table.GetSelection()
+				if row >= 0 && row < len(servers) {
+					cb.OnDelete(row)
 				}
 				return nil
 			case 'x', 'X':
-				idx := list.GetCurrentItem()
-				if idx >= 0 && idx < len(servers) {
-					cb.OnDisconnect(servers[idx].Name)
+				row, _ := table.GetSelection()
+				if row >= 0 && row < len(servers) {
+					cb.OnDisconnect(servers[row].Name)
 				}
 				return nil
 			}
@@ -86,15 +93,21 @@ func ShowServerDialog(pages *tview.Pages, servers []config.ServerConfig, cb Serv
 		return event
 	})
 
-	frame := tview.NewFrame(list).SetBorders(0, 0, 0, 0, 0, 0)
+	frame := tview.NewFrame(table).SetBorders(0, 0, 0, 0, 0, 0)
 	frame.SetBorder(true)
 	frame.SetBorderColor(theme.ColorDialogBorder)
 	frame.SetBackgroundColor(theme.ColorDialogBg)
 	frame.SetTitle(" Servers ")
 	frame.SetTitleColor(theme.ColorHeaderFg)
-	frame.AddText(" C-Connect  A-Add  E-Edit  D-Delete  X-Disconnect  Esc-Close ", false, tview.AlignCenter, tcell.ColorYellow)
+	helpText := " C-Connect  A-Add  E-Edit  D-Delete  X-Disconnect  Esc-Close "
+	frame.AddText(helpText, false, tview.AlignCenter, tcell.ColorYellow)
 
-	dialogWidth := 48
+	dialogWidth := len(helpText) + 4
+	for _, srv := range servers {
+		if w := len(srv.Name) + 6; w > dialogWidth {
+			dialogWidth = w
+		}
+	}
 	dialogHeight := len(servers) + 4
 	if dialogHeight < 10 {
 		dialogHeight = 10
