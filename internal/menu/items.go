@@ -53,7 +53,7 @@ func CommandsMenuItems(defs *MenuDefs) []MenuItem {
 		{Label: "Swap panels", Key: "", Action: defs.OnSwapPanels},
 		{Label: "Refresh", Key: "Ctrl+R", Action: defs.OnRefresh},
 		{IsSep: true},
-		{Label: "Quick paths", Key: "Alt+N", Action: defs.OnQuickPaths},
+		{Label: "Quick paths", Key: "Ctrl+N", Action: defs.OnQuickPaths},
 		{IsSep: true},
 		{Label: "Export config", Key: "", Action: defs.OnExportConfig},
 		{Label: "Import config", Key: "", Action: defs.OnImportConfig},

@@ -47,7 +47,7 @@ func ShowQuickPathsDialog(pages *tview.Pages, paths map[string]string, cb QuickP
 	table.SetSelectedFunc(func(row, col int) {
 		slot := row + 1
 		if slot >= 1 && slot <= 9 {
-			cb.OnEdit(slot, paths[fmt.Sprintf("%d", slot)])
+			cb.OnGo(slot)
 		}
 	})
 
