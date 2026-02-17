@@ -7,10 +7,150 @@ import (
 	"github.com/feherkaroly/vc/internal/theme"
 )
 
+// formatBox is a custom widget that draws format options directly to screen.
+type formatBox struct {
+	*tview.Box
+	formats  []string
+	selected int
+	callback func(string)
+	onCancel func()
+}
+
+func (f *formatBox) Draw(screen tcell.Screen) {
+	x, y, width, _ := f.GetInnerRect()
+
+	// Center the box
+	boxW := 20
+	boxH := len(f.formats) + 2
+	bx := x + (width-boxW)/2
+	_, _, _, totalH := f.Box.GetRect()
+	by := y + (totalH-boxH)/2
+
+	// Draw border
+	for row := 0; row < boxH; row++ {
+		for col := 0; col < boxW; col++ {
+			ch := ' '
+			fg := theme.ColorDialogBorder
+			bg := theme.ColorDialogBg
+
+			if row == 0 || row == boxH-1 {
+				if col == 0 {
+					if row == 0 {
+						ch = '┌'
+					} else {
+						ch = '└'
+					}
+				} else if col == boxW-1 {
+					if row == 0 {
+						ch = '┐'
+					} else {
+						ch = '┘'
+					}
+				} else {
+					ch = '─'
+				}
+			} else if col == 0 || col == boxW-1 {
+				ch = '│'
+			} else {
+				fg = theme.ColorDialogFg
+			}
+
+			screen.SetContent(bx+col, by+row, ch, nil,
+				tcell.StyleDefault.Foreground(fg).Background(bg))
+		}
+	}
+
+	// Draw title
+	title := " Format "
+	tx := bx + (boxW-len(title))/2
+	for i, ch := range title {
+		screen.SetContent(tx+i, by, ch, nil,
+			tcell.StyleDefault.Foreground(theme.ColorHeaderFg).Background(theme.ColorDialogBg))
+	}
+
+	// Draw items
+	for i, format := range f.formats {
+		iy := by + 1 + i
+		fg := theme.ColorDialogFg
+		bg := theme.ColorDialogBg
+		if i == f.selected {
+			fg = theme.ColorDialogBg
+			bg = theme.ColorDialogFg
+		}
+
+		for col := 1; col < boxW-1; col++ {
+			screen.SetContent(bx+col, iy, ' ', nil,
+				tcell.StyleDefault.Foreground(fg).Background(bg))
+		}
+
+		label := format
+		for j, ch := range label {
+			if j < boxW-4 {
+				screen.SetContent(bx+2+j, iy, ch, nil,
+					tcell.StyleDefault.Foreground(fg).Background(bg))
+			}
+		}
+	}
+}
+
+func (f *formatBox) InputHandler() func(event *tcell.EventKey, setFocus func(p tview.Primitive)) {
+	return f.WrapInputHandler(func(event *tcell.EventKey, setFocus func(p tview.Primitive)) {
+		switch event.Key() {
+		case tcell.KeyDown:
+			f.selected++
+			if f.selected >= len(f.formats) {
+				f.selected = 0
+			}
+		case tcell.KeyUp:
+			f.selected--
+			if f.selected < 0 {
+				f.selected = len(f.formats) - 1
+			}
+		case tcell.KeyEnter:
+			f.callback(f.formats[f.selected])
+		case tcell.KeyEscape:
+			f.onCancel()
+		case tcell.KeyRune:
+			idx := int(event.Rune() - '1')
+			if idx >= 0 && idx < len(f.formats) {
+				f.callback(f.formats[idx])
+			}
+		}
+	})
+}
+
+func (f *formatBox) MouseHandler() func(action tview.MouseAction, event *tcell.EventMouse, setFocus func(p tview.Primitive)) (consumed bool, capture tview.Primitive) {
+	return f.WrapMouseHandler(func(action tview.MouseAction, event *tcell.EventMouse, setFocus func(p tview.Primitive)) (consumed bool, capture tview.Primitive) {
+		if action != tview.MouseLeftClick {
+			return false, nil
+		}
+		mx, my := event.Position()
+		x, y, width, _ := f.GetInnerRect()
+
+		boxW := 20
+		boxH := len(f.formats) + 2
+		bx := x + (width-boxW)/2
+		_, _, _, totalH := f.Box.GetRect()
+		by := y + (totalH-boxH)/2
+
+		// Check if click is inside the box content area
+		row := my - by - 1
+		if mx > bx && mx < bx+boxW-1 && row >= 0 && row < len(f.formats) {
+			f.callback(f.formats[row])
+			return true, nil
+		}
+
+		// Click outside → cancel
+		if mx < bx || mx >= bx+boxW || my < by || my >= by+boxH {
+			f.onCancel()
+			return true, nil
+		}
+
+		return true, nil
+	})
+}
+
 // ShowFormatDialog displays a format selection dialog for compression.
-// If singleFile is true and isArchive is true, only "extract" is shown.
-// If singleFile is true and isEnc is true, a "decrypt" option is added.
-// If singleFile is true and isEnc is false, an "encrypt" option is added.
 func ShowFormatDialog(pages *tview.Pages, singleFile bool, isEnc bool, isArchive bool, callback func(format string), onCancel func()) {
 	var formats []string
 	if singleFile && isArchive {
@@ -24,69 +164,13 @@ func ShowFormatDialog(pages *tview.Pages, singleFile bool, isEnc bool, isArchive
 		}
 	}
 
-	table := tview.NewTable()
-	table.SetBackgroundColor(theme.ColorDialogBg)
-	table.SetSelectable(true, false)
-	table.SetSelectedStyle(tcell.StyleDefault.
-		Foreground(tcell.ColorBlack).
-		Background(tcell.NewRGBColor(0, 170, 170)))
-
-	for i, f := range formats {
-		cell := tview.NewTableCell(" " + f).
-			SetTextColor(theme.ColorDialogFg).
-			SetBackgroundColor(theme.ColorDialogBg).
-			SetExpansion(1)
-		table.SetCell(i, 0, cell)
+	fb := &formatBox{
+		Box:      tview.NewBox(),
+		formats:  formats,
+		selected: 0,
+		callback: callback,
+		onCancel: onCancel,
 	}
 
-	table.SetSelectedFunc(func(row, col int) {
-		if row >= 0 && row < len(formats) {
-			callback(formats[row])
-		}
-	})
-
-	table.SetInputCapture(func(event *tcell.EventKey) *tcell.EventKey {
-		switch event.Key() {
-		case tcell.KeyEscape:
-			onCancel()
-			return nil
-		case tcell.KeyRune:
-			switch event.Rune() {
-			case '1':
-				callback(formats[0])
-				return nil
-			case '2':
-				callback(formats[1])
-				return nil
-			case '3':
-				callback(formats[2])
-				return nil
-			case '4':
-				if len(formats) > 3 {
-					callback(formats[3])
-					return nil
-				}
-			}
-		}
-		return event
-	})
-
-	frame := tview.NewFrame(table).SetBorders(0, 0, 0, 0, 0, 0)
-	frame.SetBorder(true)
-	frame.SetBorderColor(theme.ColorDialogBorder)
-	frame.SetBackgroundColor(theme.ColorDialogBg)
-	frame.SetTitle(" Format ")
-	frame.SetTitleColor(theme.ColorHeaderFg)
-
-	rows := len(formats) + 2
-	flex := tview.NewFlex().SetDirection(tview.FlexRow).
-		AddItem(nil, 0, 1, false).
-		AddItem(tview.NewFlex().SetDirection(tview.FlexColumn).
-			AddItem(nil, 0, 1, false).
-			AddItem(frame, 20, 0, true).
-			AddItem(nil, 0, 1, false),
-			rows, 0, true).
-		AddItem(nil, 0, 1, false)
-
-	pages.AddPage("format", flex, true, true)
+	pages.AddPage("format", fb, true, true)
 }

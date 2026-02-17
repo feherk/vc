@@ -12,10 +12,11 @@ import (
 // FnBar renders the F1-F12 function key bar at the bottom of the screen.
 type FnBar struct {
 	*tview.Box
+	OnClick func(fn int) // F1-F12 callback when clicked
 }
 
 var fnLabels = [12]string{
-	"Conn", "Zip", "View", "Edit", "Copy",
+	"Conn", "Archiv", "View", "Edit", "Copy",
 	"Move", "MkDir", "Del", "Menu", "Quit",
 	"Select", "Name",
 }
@@ -67,4 +68,30 @@ func (f *FnBar) Draw(screen tcell.Screen) {
 					Background(theme.ColorFnLabelBg))
 		}
 	}
+}
+
+// MouseHandler returns a mouse handler for the FnBar.
+func (f *FnBar) MouseHandler() func(action tview.MouseAction, event *tcell.EventMouse, setFocus func(p tview.Primitive)) (consumed bool, capture tview.Primitive) {
+	return f.WrapMouseHandler(func(action tview.MouseAction, event *tcell.EventMouse, setFocus func(p tview.Primitive)) (consumed bool, capture tview.Primitive) {
+		if action != tview.MouseLeftClick {
+			return false, nil
+		}
+		mx, my := event.Position()
+		x, y, width, _ := f.GetInnerRect()
+		if my != y {
+			return false, nil
+		}
+		if mx < x || mx >= x+width {
+			return false, nil
+		}
+		slotWidth := width / 12
+		slot := (mx - x) / slotWidth
+		if slot < 0 || slot > 11 {
+			return false, nil
+		}
+		if f.OnClick != nil {
+			f.OnClick(slot + 1)
+		}
+		return true, nil
+	})
 }

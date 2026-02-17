@@ -54,6 +54,12 @@ type App struct {
 	MenuActive     bool
 	ModalOpen      bool
 	CmdLineFocused bool
+
+	lastClickTime  time.Time
+	lastClickRow   int
+	lastClickTable *tview.Table
+
+	activeDropdown *menu.Dropdown
 }
 
 var Version string
@@ -101,6 +107,49 @@ func New(leftPath, rightPath string) *App {
 		a.activePanel = 0
 		a.LeftPanel.SetActive(true)
 		a.RightPanel.SetActive(false)
+	}
+
+	a.TviewApp.EnableMouse(true)
+
+	a.MenuBar.OnClick = func(idx int) {
+		if a.ModalOpen {
+			return
+		}
+		a.MenuBar.Selected = idx
+		a.ActivateMenu()
+		go a.TviewApp.QueueUpdateDraw(func() {})
+	}
+
+	a.FnBar.OnClick = func(fn int) {
+		if a.ModalOpen || a.MenuActive {
+			return
+		}
+		switch fn {
+		case 1:
+			a.ShowServerDialog()
+		case 2:
+			a.CompressFiles()
+		case 3:
+			a.ViewFile()
+		case 4:
+			a.EditFile()
+		case 5:
+			a.CopyFiles()
+		case 6:
+			a.MoveFiles()
+		case 7:
+			a.MakeDir()
+		case 8:
+			a.DeleteFiles()
+		case 9:
+			a.ActivateMenu()
+		case 10:
+			a.SaveConfig()
+			a.TviewApp.Stop()
+		case 11:
+			a.GetActivePanel().ToggleSelection()
+		}
+		go a.TviewApp.QueueUpdateDraw(func() {})
 	}
 
 	a.SetupKeyBindings()
@@ -972,6 +1021,7 @@ func (a *App) DeactivateMenu() {
 	saved := a.activePanel
 	a.MenuActive = false
 	a.MenuBar.Active = false
+	a.activeDropdown = nil
 	a.Pages.RemovePage("dropdown")
 	a.activePanel = saved
 	a.focusActiveTable()
@@ -1077,6 +1127,7 @@ func (a *App) showMenuDropdown() {
 	})
 
 	a.Pages.RemovePage("dropdown")
+	a.activeDropdown = dd
 	a.Pages.AddPage("dropdown", dd, false, true)
 	a.TviewApp.SetFocus(dd)
 }

@@ -275,6 +275,21 @@ func (p *Panel) ToggleSelection() {
 	p.SelectAndMove(1)
 }
 
+
+// ToggleSelectionAt toggles selection of the entry at the given index without moving cursor.
+func (p *Panel) ToggleSelectionAt(idx int) {
+	if idx < 0 || idx >= len(p.Entries) {
+		return
+	}
+	e := &p.Entries[idx]
+	if e.Name == ".." {
+		return
+	}
+	p.Selection.Toggle(e.Name)
+	p.Render()
+	p.UpdateTitle()
+}
+
 // GetSelectedOrCurrent returns selected files, or current file if nothing selected.
 func (p *Panel) GetSelectedOrCurrent() []model.FileEntry {
 	if p.Selection.Count() > 0 {

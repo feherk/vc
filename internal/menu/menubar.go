@@ -13,6 +13,7 @@ type MenuBar struct {
 	Selected int
 	Active   bool
 	Version  string
+	OnClick  func(idx int)
 }
 
 func NewMenuBar() *MenuBar {
@@ -75,4 +76,30 @@ func (m *MenuBar) MoveRight() {
 	if m.Selected >= len(m.Items) {
 		m.Selected = 0
 	}
+}
+
+// MouseHandler returns the mouse handler for the menu bar.
+func (m *MenuBar) MouseHandler() func(action tview.MouseAction, event *tcell.EventMouse, setFocus func(p tview.Primitive)) (consumed bool, capture tview.Primitive) {
+	return m.WrapMouseHandler(func(action tview.MouseAction, event *tcell.EventMouse, setFocus func(p tview.Primitive)) (consumed bool, capture tview.Primitive) {
+		if action != tview.MouseLeftClick {
+			return false, nil
+		}
+		mx, my := event.Position()
+		x, y, _, _ := m.GetInnerRect()
+		if my != y {
+			return false, nil
+		}
+		pos := x
+		for i, item := range m.Items {
+			end := pos + len(item)
+			if mx >= pos && mx < end {
+				if m.OnClick != nil {
+					m.OnClick(i)
+				}
+				return true, nil
+			}
+			pos = end
+		}
+		return false, nil
+	})
 }

@@ -158,3 +158,38 @@ func (d *Dropdown) CurrentAction() func() {
 	}
 	return nil
 }
+
+// MouseHandler returns the mouse handler for the dropdown.
+func (d *Dropdown) MouseHandler() func(action tview.MouseAction, event *tcell.EventMouse, setFocus func(p tview.Primitive)) (consumed bool, capture tview.Primitive) {
+	return d.WrapMouseHandler(func(action tview.MouseAction, event *tcell.EventMouse, setFocus func(p tview.Primitive)) (consumed bool, capture tview.Primitive) {
+		if action != tview.MouseLeftClick || !d.Visible {
+			return false, nil
+		}
+		mx, my := event.Position()
+		height := len(d.Items) + 2
+		maxWidth := 0
+		for _, item := range d.Items {
+			w := len(item.Label) + len(item.Key) + 4
+			if w > maxWidth {
+				maxWidth = w
+			}
+		}
+		width := maxWidth + 2
+
+		// Click outside dropdown → dismiss (return not consumed so app handles it)
+		if mx < d.X || mx >= d.X+width || my < d.Y || my >= d.Y+height {
+			return false, nil
+		}
+
+		// Click on an item row (skip border rows)
+		row := my - d.Y - 1
+		if row >= 0 && row < len(d.Items) && !d.Items[row].IsSep {
+			d.Selected = row
+			if action := d.Items[row].Action; action != nil {
+				action()
+			}
+			return true, nil
+		}
+		return true, nil
+	})
+}

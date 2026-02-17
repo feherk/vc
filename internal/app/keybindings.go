@@ -4,6 +4,9 @@ import (
 	"time"
 
 	"github.com/gdamore/tcell/v2"
+	"github.com/rivo/tview"
+
+	"github.com/feherkaroly/vc/internal/panel"
 )
 
 // SetupKeyBindings configures global key handling for the application.
@@ -151,6 +154,32 @@ func (a *App) SetupKeyBindings() {
 		return event
 	})
 
+	// App-level mouse capture: dismiss menu on outside click, block clicks during modals
+	a.TviewApp.SetMouseCapture(func(event *tcell.EventMouse, action tview.MouseAction) (*tcell.EventMouse, tview.MouseAction) {
+		if action != tview.MouseLeftClick {
+			return event, action
+		}
+		if a.MenuActive {
+			mx, my := event.Position()
+			// Click on menu bar → let MenuBar.OnClick handle (switches menu)
+			if my == 0 {
+				return event, action
+			}
+			// Click inside dropdown → let Dropdown.MouseHandler handle
+			if a.activeDropdown != nil {
+				dx, dy, dw, dh := a.activeDropdown.GetRect()
+				if mx >= dx && mx < dx+dw && my >= dy && my < dy+dh {
+					return event, action
+				}
+			}
+			// Click outside both → dismiss menu
+			a.DeactivateMenu()
+			go a.TviewApp.QueueUpdateDraw(func() {})
+			return nil, action
+		}
+		return event, action
+	})
+
 	// Panel table selection change handler
 	a.LeftPanel.Table.SetSelectionChangedFunc(func(row, col int) {
 		a.LeftPanel.HandleSelectionChanged(row, col)
@@ -158,6 +187,78 @@ func (a *App) SetupKeyBindings() {
 	a.RightPanel.Table.SetSelectionChangedFunc(func(row, col int) {
 		a.RightPanel.HandleSelectionChanged(row, col)
 	})
+
+	// Double-click = Enter. Two detection methods:
+	// 1. tview's MouseLeftDoubleClick (500ms threshold)
+	// 2. Custom detection on MouseLeftClick as backup (800ms threshold)
+	doMouseEnter := func(p *panel.Panel) {
+		entry, atRoot := p.Enter()
+		if atRoot && !p.IsRemote() {
+			a.ShowDriveSelector()
+		} else if entry != nil {
+			a.OpenFile()
+			go func() {
+				time.Sleep(2 * time.Second)
+				a.TviewApp.QueueUpdateDraw(func() {
+					a.GetActivePanel().Refresh()
+					a.GetInactivePanel().Refresh()
+				})
+			}()
+		}
+		a.CmdLine.SetPath(p.Path)
+		// Force redraw — Table doesn't consume MouseLeftDoubleClick
+		// so tview skips the draw call after fireMouseActions.
+		go a.TviewApp.QueueUpdateDraw(func() {})
+	}
+
+	setupPanelMouse := func(p *panel.Panel) {
+		p.Table.SetMouseCapture(func(action tview.MouseAction, event *tcell.EventMouse) (tview.MouseAction, *tcell.EventMouse) {
+			if a.ModalOpen || a.MenuActive {
+				return action, event
+			}
+
+			switch action {
+			case tview.MouseLeftDoubleClick:
+				a.lastClickTime = time.Time{}
+				doMouseEnter(p)
+				return action, nil
+
+			case tview.MouseRightClick:
+				_, my := event.Position()
+				_, tableY, _, _ := p.Table.GetInnerRect()
+				row := my - tableY
+				if p.Mode != panel.ModeBrief {
+					row--
+				}
+				p.ToggleSelectionAt(row)
+				go a.TviewApp.QueueUpdateDraw(func() {})
+				return action, nil
+
+			case tview.MouseLeftClick:
+				_, my := event.Position()
+				_, tableY, _, _ := p.Table.GetInnerRect()
+				row := my - tableY
+				if p.Mode != panel.ModeBrief {
+					row--
+				}
+				now := time.Now()
+				if now.Sub(a.lastClickTime) < 800*time.Millisecond &&
+					a.lastClickRow == row && a.lastClickTable == p.Table {
+					a.lastClickTime = time.Time{}
+					doMouseEnter(p)
+					return action, nil
+				}
+				a.lastClickTime = now
+				a.lastClickRow = row
+				a.lastClickTable = p.Table
+				return action, event
+			}
+
+			return action, event
+		})
+	}
+	setupPanelMouse(a.LeftPanel)
+	setupPanelMouse(a.RightPanel)
 
 	// Track active panel on focus (ignore during menu/modal to prevent spurious switches)
 	a.LeftPanel.Table.SetFocusFunc(func() {
