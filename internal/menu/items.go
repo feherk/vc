@@ -20,6 +20,7 @@ type MenuDefs struct {
 	OnEditFile     func()
 	OnExportConfig func()
 	OnImportConfig func()
+	OnQuickPaths   func()
 }
 
 func LeftMenuItems(defs *MenuDefs) []MenuItem {
@@ -51,6 +52,8 @@ func CommandsMenuItems(defs *MenuDefs) []MenuItem {
 	return []MenuItem{
 		{Label: "Swap panels", Key: "", Action: defs.OnSwapPanels},
 		{Label: "Refresh", Key: "Ctrl+R", Action: defs.OnRefresh},
+		{IsSep: true},
+		{Label: "Quick paths", Key: "Alt+N", Action: defs.OnQuickPaths},
 		{IsSep: true},
 		{Label: "Export config", Key: "", Action: defs.OnExportConfig},
 		{Label: "Import config", Key: "", Action: defs.OnImportConfig},

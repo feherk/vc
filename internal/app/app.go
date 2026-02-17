@@ -15,6 +15,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"time"
 
@@ -275,9 +276,29 @@ func (a *App) CompressFiles() {
 
 	singleFile := len(entries) == 1 && !entries[0].IsDir
 	isEnc := singleFile && strings.HasSuffix(strings.ToLower(entries[0].Name), ".enc")
+	lower := strings.ToLower(entries[0].Name)
+	isArchive := singleFile && (strings.HasSuffix(lower, ".zip") ||
+		strings.HasSuffix(lower, ".tar.gz") || strings.HasSuffix(lower, ".tgz") ||
+		strings.HasSuffix(lower, ".tar"))
 
-	dialog.ShowFormatDialog(a.Pages, singleFile, isEnc, func(format string) {
+	dialog.ShowFormatDialog(a.Pages, singleFile, isEnc, isArchive, func(format string) {
 		a.closeDialog("format")
+
+		if format == "extract" {
+			srcPath := filepath.Join(p.Path, entries[0].Name)
+			destDir := uniqueExtractDir(p.Path, entries[0].Name)
+			a.runWithSpinner(entries[0].Name, func() error {
+				if err := os.MkdirAll(destDir, 0755); err != nil {
+					return err
+				}
+				lower := strings.ToLower(entries[0].Name)
+				if strings.HasSuffix(lower, ".zip") {
+					return extractZip(srcPath, destDir)
+				}
+				return extractTar(srcPath, destDir)
+			})
+			return
+		}
 
 		if format == "encrypt" {
 			srcPath := filepath.Join(p.Path, entries[0].Name)
@@ -614,7 +635,14 @@ func (a *App) OpenFile() {
 		return
 	}
 	path := filepath.Join(p.Path, e.Name)
-	exec.Command("open", path).Start()
+	switch runtime.GOOS {
+	case "darwin":
+		exec.Command("open", path).Start()
+	case "windows":
+		exec.Command("cmd", "/c", "start", "", path).Start()
+	default:
+		exec.Command("xdg-open", path).Start()
+	}
 }
 
 // EditFile opens the file in $EDITOR using Suspend.
@@ -971,6 +999,7 @@ func (a *App) showMenuDropdown() {
 			OnEditFile:     func() { a.DeactivateMenu(); a.EditFile() },
 			OnExportConfig: func() { a.DeactivateMenu(); a.ExportConfig() },
 			OnImportConfig: func() { a.DeactivateMenu(); a.ImportConfig() },
+			OnQuickPaths:   func() { a.DeactivateMenu(); a.ShowQuickPathsDialog() },
 		}
 	}
 
@@ -1342,6 +1371,77 @@ func (a *App) ShowDriveSelector() {
 	a.TviewApp.SetFocus(a.Pages)
 }
 
+// ShowQuickPathsDialog opens the quick paths (1-9) dialog.
+func (a *App) ShowQuickPathsDialog() {
+	cfg := config.Load()
+	if cfg.QuickPaths == nil {
+		cfg.QuickPaths = make(map[string]string)
+	}
+
+	var showDialog func()
+	showDialog = func() {
+		dialog.ShowQuickPathsDialog(a.Pages, cfg.QuickPaths, dialog.QuickPathsCallbacks{
+			OnSet: func(slot int) {
+				key := fmt.Sprintf("%d", slot)
+				cfg.QuickPaths[key] = a.GetActivePanel().Path
+				a.saveConfigWithServers(cfg)
+				a.Pages.RemovePage("quickpaths")
+				a.ModalOpen = false
+				showDialog()
+			},
+			OnEdit: func(slot int, current string) {
+				a.Pages.RemovePage("quickpaths")
+				key := fmt.Sprintf("%d", slot)
+				dialog.ShowInput(a.Pages, fmt.Sprintf("Quick Path %d", slot), "Path:", current, func(path string) {
+					a.closeDialog("input")
+					if path != "" {
+						cfg.QuickPaths[key] = path
+					} else {
+						delete(cfg.QuickPaths, key)
+					}
+					a.saveConfigWithServers(cfg)
+					showDialog()
+				}, func() {
+					a.closeDialog("input")
+					showDialog()
+				})
+				a.ModalOpen = true
+				a.TviewApp.SetFocus(a.Pages)
+			},
+			OnDelete: func(slot int) {
+				key := fmt.Sprintf("%d", slot)
+				delete(cfg.QuickPaths, key)
+				a.saveConfigWithServers(cfg)
+				a.Pages.RemovePage("quickpaths")
+				a.ModalOpen = false
+				showDialog()
+			},
+			OnGo: func(slot int) {
+				a.closeDialog("quickpaths")
+				a.navigateToQuickPath(slot, cfg.QuickPaths)
+			},
+			OnClose: func() {
+				a.closeDialog("quickpaths")
+			},
+		})
+		a.ModalOpen = true
+		a.TviewApp.SetFocus(a.Pages)
+	}
+	showDialog()
+}
+
+// navigateToQuickPath navigates the active panel to the path stored in the given slot.
+func (a *App) navigateToQuickPath(slot int, paths map[string]string) {
+	key := fmt.Sprintf("%d", slot)
+	path, ok := paths[key]
+	if !ok || path == "" {
+		return
+	}
+	p := a.GetActivePanel()
+	p.NavigateTo(path, "")
+	a.CmdLine.SetPath(p.Path)
+}
+
 func (a *App) showRemoteError(operation string) {
 	dialog.ShowError(a.Pages, operation+" is not available on remote panels.", func() {
 		a.closeDialog("error")
@@ -1536,4 +1636,143 @@ func decryptFile(srcPath, dstDir, password string) (string, error) {
 	}
 
 	return origName, nil
+}
+
+// uniqueExtractDir returns a unique directory path for extracting an archive.
+// It strips the archive extension and appends a number suffix if needed.
+func uniqueExtractDir(parentDir, archiveName string) string {
+	lower := strings.ToLower(archiveName)
+	base := archiveName
+	switch {
+	case strings.HasSuffix(lower, ".tar.gz"):
+		base = archiveName[:len(archiveName)-7]
+	case strings.HasSuffix(lower, ".tgz"):
+		base = archiveName[:len(archiveName)-4]
+	case strings.HasSuffix(lower, ".zip"):
+		base = archiveName[:len(archiveName)-4]
+	case strings.HasSuffix(lower, ".tar"):
+		base = archiveName[:len(archiveName)-4]
+	}
+
+	candidate := filepath.Join(parentDir, base)
+	if _, err := os.Stat(candidate); os.IsNotExist(err) {
+		return candidate
+	}
+	for i := 2; ; i++ {
+		candidate = filepath.Join(parentDir, fmt.Sprintf("%s%d", base, i))
+		if _, err := os.Stat(candidate); os.IsNotExist(err) {
+			return candidate
+		}
+	}
+}
+
+// extractZip extracts a zip archive to destDir.
+func extractZip(zipPath, destDir string) error {
+	r, err := zip.OpenReader(zipPath)
+	if err != nil {
+		return err
+	}
+	defer r.Close()
+
+	for _, f := range r.File {
+		target := filepath.Join(destDir, f.Name)
+		// ZipSlip protection
+		if !strings.HasPrefix(filepath.Clean(target), filepath.Clean(destDir)+string(os.PathSeparator)) {
+			return fmt.Errorf("invalid path in archive: %s", f.Name)
+		}
+
+		if f.FileInfo().IsDir() {
+			os.MkdirAll(target, 0755)
+			continue
+		}
+
+		if err := os.MkdirAll(filepath.Dir(target), 0755); err != nil {
+			return err
+		}
+
+		rc, err := f.Open()
+		if err != nil {
+			return err
+		}
+
+		out, err := os.OpenFile(target, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, f.Mode())
+		if err != nil {
+			rc.Close()
+			return err
+		}
+
+		_, err = io.Copy(out, rc)
+		rc.Close()
+		out.Close()
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// extractTar extracts a tar (or tar.gz/tgz) archive to destDir.
+// Gzip detection is based on the file's magic bytes.
+func extractTar(tarPath, destDir string) error {
+	f, err := os.Open(tarPath)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+
+	// Detect gzip by reading magic bytes
+	magic := make([]byte, 2)
+	if _, err := io.ReadFull(f, magic); err != nil {
+		return err
+	}
+	if _, err := f.Seek(0, io.SeekStart); err != nil {
+		return err
+	}
+
+	var tr *tar.Reader
+	if magic[0] == 0x1f && magic[1] == 0x8b {
+		gr, err := gzip.NewReader(f)
+		if err != nil {
+			return err
+		}
+		defer gr.Close()
+		tr = tar.NewReader(gr)
+	} else {
+		tr = tar.NewReader(f)
+	}
+
+	for {
+		header, err := tr.Next()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			return err
+		}
+
+		target := filepath.Join(destDir, header.Name)
+		// ZipSlip protection
+		if !strings.HasPrefix(filepath.Clean(target), filepath.Clean(destDir)+string(os.PathSeparator)) {
+			return fmt.Errorf("invalid path in archive: %s", header.Name)
+		}
+
+		switch header.Typeflag {
+		case tar.TypeDir:
+			os.MkdirAll(target, 0755)
+		case tar.TypeReg:
+			if err := os.MkdirAll(filepath.Dir(target), 0755); err != nil {
+				return err
+			}
+			out, err := os.OpenFile(target, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, os.FileMode(header.Mode))
+			if err != nil {
+				return err
+			}
+			_, err = io.Copy(out, tr)
+			out.Close()
+			if err != nil {
+				return err
+			}
+		}
+	}
+	return nil
 }

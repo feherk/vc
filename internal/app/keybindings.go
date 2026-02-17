@@ -4,6 +4,7 @@ import (
 	"time"
 
 	"github.com/gdamore/tcell/v2"
+	"github.com/feherkaroly/vc/internal/config"
 )
 
 // SetupKeyBindings configures global key handling for the application.
@@ -132,6 +133,16 @@ func (a *App) SetupKeyBindings() {
 			}
 
 		case tcell.KeyRune:
+			if event.Modifiers()&tcell.ModAlt != 0 && !a.CmdLineFocused {
+				r := event.Rune()
+				if r >= '1' && r <= '9' {
+					cfg := config.Load()
+					if cfg.QuickPaths != nil {
+						a.navigateToQuickPath(int(r-'0'), cfg.QuickPaths)
+					}
+					return nil
+				}
+			}
 			if event.Rune() == ' ' && !a.CmdLineFocused {
 				a.CalcDirSize()
 				return nil

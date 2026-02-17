@@ -8,14 +8,20 @@ import (
 )
 
 // ShowFormatDialog displays a format selection dialog for compression.
-// If singleFile is true and isEnc is false, an "encrypt" option is added.
+// If singleFile is true and isArchive is true, only "extract" is shown.
 // If singleFile is true and isEnc is true, a "decrypt" option is added.
-func ShowFormatDialog(pages *tview.Pages, singleFile bool, isEnc bool, callback func(format string), onCancel func()) {
-	formats := []string{"zip", "tar", "tar.gz"}
-	if singleFile && isEnc {
-		formats = append(formats, "decrypt")
-	} else if singleFile && !isEnc {
-		formats = append(formats, "encrypt")
+// If singleFile is true and isEnc is false, an "encrypt" option is added.
+func ShowFormatDialog(pages *tview.Pages, singleFile bool, isEnc bool, isArchive bool, callback func(format string), onCancel func()) {
+	var formats []string
+	if singleFile && isArchive {
+		formats = []string{"extract"}
+	} else {
+		formats = []string{"zip", "tar", "tar.gz"}
+		if singleFile && isEnc {
+			formats = append(formats, "decrypt")
+		} else if singleFile && !isEnc {
+			formats = append(formats, "encrypt")
+		}
 	}
 
 	table := tview.NewTable()
