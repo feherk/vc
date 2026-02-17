@@ -39,10 +39,14 @@ echo "==> Creating universal binary..."
 lipo -create -output "$BUILD_DIR/vc" "$BUILD_DIR/vc-arm64" "$BUILD_DIR/vc-amd64"
 rm "$BUILD_DIR/vc-arm64" "$BUILD_DIR/vc-amd64"
 
-# ── 2. Convert icon PNG → icns ──────────────────────────────────────────
+# ── 2. Icon ─────────────────────────────────────────────────────────────
 ICNS_PATH=""
-if [ -f "$ICON_PNG" ]; then
-    echo "==> Converting icon..."
+ICON_ICNS="$PROJECT_DIR/assets/vc.icns"
+if [ -f "$ICON_ICNS" ]; then
+    echo "==> Using pre-built icon (assets/vc.icns)"
+    ICNS_PATH="$ICON_ICNS"
+elif [ -f "$ICON_PNG" ]; then
+    echo "==> Converting icon from PNG..."
     ICONSET="$BUILD_DIR/AppIcon.iconset"
     mkdir -p "$ICONSET"
 
@@ -61,7 +65,7 @@ if [ -f "$ICON_PNG" ]; then
     ICNS_PATH="$BUILD_DIR/AppIcon.icns"
     rm -rf "$ICONSET"
 else
-    echo "    (no icon at assets/icon.png — skipping)"
+    echo "    (no icon found — skipping)"
 fi
 
 # ── 3. Create .app bundle ───────────────────────────────────────────────
