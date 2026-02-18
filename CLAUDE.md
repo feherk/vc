@@ -69,7 +69,7 @@ Dual-pane terminal file manager written in Go + tview/tcell, classic DOS blue th
 - Server dialog uses `tview.Table` NOT `tview.List`
 - `CmdLineFocused` flag must be reset on: Tab (switchPanel), Backspace on empty input, Escape
 - Panel focus tracking (`SetFocusFunc`) must ignore changes during `MenuActive`/`ModalOpen`
-- F2 format dialog: context-dependent (encrypt for files, decrypt for .enc, compress for dirs/multi)
+- F2 format dialog: context-dependent (encrypt for files + archives, decrypt for .enc, extract for archives, compress for dirs/multi)
 - `runWithSpinner()` reusable helper for async ops with spinner
 - Config stores `active_panel` (0=left, 1=right), restored on startup
 - Quick Paths: config `QuickPaths map[string]string`, Alt+1..9 keybindings
