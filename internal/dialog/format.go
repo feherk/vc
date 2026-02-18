@@ -154,7 +154,7 @@ func (f *formatBox) MouseHandler() func(action tview.MouseAction, event *tcell.E
 func ShowFormatDialog(pages *tview.Pages, singleFile bool, isEnc bool, isArchive bool, callback func(format string), onCancel func()) {
 	var formats []string
 	if singleFile && isArchive {
-		formats = []string{"extract"}
+		formats = []string{"extract", "encrypt"}
 	} else {
 		formats = []string{"zip", "tar", "tar.gz"}
 		if singleFile && isEnc {
