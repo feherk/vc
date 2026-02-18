@@ -79,6 +79,8 @@ Dual-pane terminal file manager written in Go + tview/tcell, classic DOS blue th
 
 - AES-256-GCM + Argon2id
 - File format: `[uint16 name len][name][salt][nonce][ciphertext+tag]`
+- Filename header (length + name) is passed as AAD to `gcm.Seal`/`gcm.Open` — tampering with the stored filename is detected during decryption
+- Argon2id params: time=1, memory=64MB, threads=4, keyLen=32
 
 ## User Preferences
 
