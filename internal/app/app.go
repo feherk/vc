@@ -1609,9 +1609,15 @@ func encryptFile(srcPath, dstPath, password string) error {
 		return err
 	}
 
-	ciphertext := gcm.Seal(nil, nonce, plaintext, nil)
-
 	origName := filepath.Base(srcPath)
+
+	// Build header: filename length (uint16 big-endian) + filename
+	var header []byte
+	header = binary.BigEndian.AppendUint16(header, uint16(len(origName)))
+	header = append(header, []byte(origName)...)
+
+	// Header is included as AAD so any tampering with the filename is detected
+	ciphertext := gcm.Seal(nil, nonce, plaintext, header)
 
 	out, err := os.Create(dstPath)
 	if err != nil {
@@ -1619,11 +1625,8 @@ func encryptFile(srcPath, dstPath, password string) error {
 	}
 	defer out.Close()
 
-	// Write header: filename length (uint16 big-endian) + filename
-	if err := binary.Write(out, binary.BigEndian, uint16(len(origName))); err != nil {
-		return err
-	}
-	if _, err := out.Write([]byte(origName)); err != nil {
+	// Write header
+	if _, err := out.Write(header); err != nil {
 		return err
 	}
 	// Write salt + nonce + ciphertext
@@ -1676,7 +1679,8 @@ func decryptFile(srcPath, dstDir, password string) (string, error) {
 		return "", err
 	}
 
-	plaintext, err := gcm.Open(nil, nonce, ciphertext, nil)
+	header := data[:offset] // filename length + filename
+	plaintext, err := gcm.Open(nil, nonce, ciphertext, header)
 	if err != nil {
 		return "", fmt.Errorf("decryption failed (wrong password?)")
 	}
