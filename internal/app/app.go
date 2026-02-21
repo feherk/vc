@@ -1050,6 +1050,7 @@ func (a *App) showMenuDropdown() {
 			OnExportConfig: func() { a.DeactivateMenu(); a.ExportConfig() },
 			OnImportConfig: func() { a.DeactivateMenu(); a.ImportConfig() },
 			OnQuickPaths:   func() { a.DeactivateMenu(); a.ShowQuickPathsDialog() },
+			OnCheckUpdate:  func() { a.DeactivateMenu(); a.CheckForUpdates() },
 		}
 	}
 

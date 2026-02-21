@@ -21,6 +21,7 @@ type MenuDefs struct {
 	OnExportConfig func()
 	OnImportConfig func()
 	OnQuickPaths   func()
+	OnCheckUpdate  func()
 }
 
 func LeftMenuItems(defs *MenuDefs) []MenuItem {
@@ -57,6 +58,8 @@ func CommandsMenuItems(defs *MenuDefs) []MenuItem {
 		{IsSep: true},
 		{Label: "Export config", Key: "", Action: defs.OnExportConfig},
 		{Label: "Import config", Key: "", Action: defs.OnImportConfig},
+		{IsSep: true},
+		{Label: "Check for Updates", Key: "", Action: defs.OnCheckUpdate},
 	}
 }
 

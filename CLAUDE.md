@@ -9,6 +9,7 @@ Dual-pane terminal file manager written in Go + tview/tcell, classic DOS blue th
 
 - `main.go` — entry point, version string, flag parsing
 - `internal/app/app.go` — main App struct, file ops, dialogs, menu, config save/load
+- `internal/app/update.go` — built-in self-update from GitHub releases
 - `internal/app/keybindings.go` — all keyboard shortcuts + mouse handlers
 - `internal/config/config.go` — Config struct (panels + servers), Load/Save to `~/.config/vc/config.json`
 - `internal/menu/items.go` — MenuDefs struct, menu item builders
@@ -74,6 +75,7 @@ Dual-pane terminal file manager written in Go + tview/tcell, classic DOS blue th
 - Config stores `active_panel` (0=left, 1=right), restored on startup
 - Quick Paths: config `QuickPaths map[string]string`, Alt+1..9 keybindings
 - Recursive `showDialog` pattern (ServerDialog & QuickPathsDialog) for dialogs that reopen after sub-actions
+- Self-update: Commands → Check for Updates, GitHub API (`feherk/vc/releases/latest`), asset pattern `vc-{GOOS}-{GOARCH}`, atomic binary replace via temp file + `os.Rename`
 
 ### Encryption
 
