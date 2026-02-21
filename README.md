@@ -28,10 +28,28 @@ Download the latest release for your platform from the [Releases](https://github
 ### Linux
 
 ```bash
-curl -L -o vc https://github.com/feherk/vc/releases/latest/download/vc-linux-amd64
-chmod +x vc
-sudo mv vc /usr/local/bin/
+mkdir -p ~/.local/bin
+curl -L -o ~/.local/bin/vc https://github.com/feherk/vc/releases/latest/download/vc-linux-amd64
+chmod +x ~/.local/bin/vc
 ```
+
+### macOS (Apple Silicon)
+
+```bash
+mkdir -p ~/.local/bin
+curl -L -o ~/.local/bin/vc https://github.com/feherk/vc/releases/latest/download/vc-darwin-arm64
+chmod +x ~/.local/bin/vc
+```
+
+### macOS (Intel)
+
+```bash
+mkdir -p ~/.local/bin
+curl -L -o ~/.local/bin/vc https://github.com/feherk/vc/releases/latest/download/vc-darwin-amd64
+chmod +x ~/.local/bin/vc
+```
+
+Or download `VC-x.x.x-macOS.dmg` from [Releases](https://github.com/feherk/vc/releases) and drag VC to Applications.
 
 ### Windows (cmd)
 
@@ -39,9 +57,7 @@ sudo mv vc /usr/local/bin/
 curl -L -o vc.exe https://github.com/feherk/vc/releases/latest/download/vc-windows-amd64.exe
 ```
 
-### macOS
-
-Download `VC-x.x.x-macOS.dmg` from [Releases](https://github.com/feherk/vc/releases) and drag VC to Applications.
+> **Note:** Make sure `~/.local/bin` is in your `$PATH`. Add `export PATH="$HOME/.local/bin:$PATH"` to your `~/.bashrc` or `~/.zshrc` if needed.
 
 ### Build from source
 

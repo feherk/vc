@@ -13,6 +13,11 @@ var (
 	ColorCursorBg     = tcell.NewRGBColor(0, 170, 170) // Teal
 	ColorSelected     = tcell.ColorYellow
 	ColorExecutable   = tcell.ColorGreen
+	ColorArchive      = tcell.NewRGBColor(170, 0, 0)   // Dark red
+	ColorDocument     = tcell.NewRGBColor(170, 0, 170)  // Magenta
+	ColorMedia        = tcell.NewRGBColor(170, 85, 255) // Bright purple
+	ColorSource       = tcell.NewRGBColor(85, 255, 255) // Bright cyan
+	ColorEncrypted    = tcell.NewRGBColor(255, 85, 85)  // Bright red
 
 	// Menu bar
 	ColorMenuBarFg = tcell.ColorBlack

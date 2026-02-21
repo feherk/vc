@@ -128,6 +128,38 @@ func fileColor(entry model.FileEntry) tcell.Color {
 	if entry.Mode&0111 != 0 {
 		return theme.ColorExecutable
 	}
+
+	ext := strings.ToLower(entry.Name)
+	if i := strings.LastIndex(ext, "."); i >= 0 {
+		ext = ext[i:]
+	} else {
+		ext = ""
+	}
+
+	switch ext {
+	// Encrypted
+	case ".enc":
+		return theme.ColorEncrypted
+	// Archives
+	case ".zip", ".tar", ".gz", ".bz2", ".xz", ".7z", ".rar",
+		".tgz", ".dmg", ".iso", ".cab", ".lz", ".zst", ".lzma":
+		return theme.ColorArchive
+	// Documents
+	case ".pdf", ".doc", ".docx", ".xls", ".xlsx", ".ppt", ".pptx",
+		".odt", ".ods", ".rtf", ".epub":
+		return theme.ColorDocument
+	// Media (image, audio, video)
+	case ".jpg", ".jpeg", ".png", ".gif", ".bmp", ".svg", ".ico", ".webp", ".tiff",
+		".mp3", ".mp4", ".avi", ".mkv", ".mov", ".wav", ".flac", ".ogg", ".wmv",
+		".m4a", ".aac", ".webm", ".mpg", ".mpeg", ".sid":
+		return theme.ColorMedia
+	// Source & config
+	case ".go", ".py", ".js", ".ts", ".java", ".c", ".cpp", ".h", ".rs", ".rb", ".swift",
+		".json", ".yaml", ".yml", ".toml", ".xml", ".html", ".css", ".sh", ".zsh",
+		".bash", ".lua", ".sql", ".md", ".txt", ".csv", ".log", ".conf", ".cfg", ".ini":
+		return theme.ColorSource
+	}
+
 	return theme.ColorNormalFile
 }
 
