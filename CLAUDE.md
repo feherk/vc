@@ -95,6 +95,7 @@ Dual-pane terminal file manager written in Go + tview/tcell, classic DOS blue th
 - `ColorSymlink` (bright cyan) for symlink entries in `fileColor()`
 - Footer shows `@ → /path/to/target` when cursor is on a symlink (instead of summary)
 - `HandleSelectionChanged()` calls `UpdateTitle()` to refresh footer on cursor move
+- Listed in README Features section
 
 ### Encryption
 
