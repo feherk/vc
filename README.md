@@ -19,6 +19,7 @@ Built with Go, using [tview](https://github.com/rivo/tview) and [tcell](https://
 - SFTP/FTPS remote filesystem support (F1)
 - Windows drive switching (Backspace at drive root)
 - Shell command execution from built-in command line
+- Symlink display with `@` prefix and link target in footer
 - Classic DOS blue theme
 
 ## Installation
