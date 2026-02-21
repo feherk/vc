@@ -76,6 +76,7 @@ Dual-pane terminal file manager written in Go + tview/tcell, classic DOS blue th
 - Quick Paths: config `QuickPaths map[string]string`, Alt+1..9 keybindings
 - Recursive `showDialog` pattern (ServerDialog & QuickPathsDialog) for dialogs that reopen after sub-actions
 - Self-update: Commands → Check for Updates, GitHub API (`feherk/vc/releases/latest`), asset pattern `vc-{GOOS}-{GOARCH}`, atomic binary replace via temp file + `os.Rename`
+- Symlink: File menu → Symlink, creates symlinks in inactive panel dir pointing to active panel entries. Single entry → input dialog for link name, multiple → original names. Local-only (`os.Symlink`), no spinner needed.
 
 ### File Type Color Coding
 

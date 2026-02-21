@@ -22,6 +22,7 @@ type MenuDefs struct {
 	OnImportConfig func()
 	OnQuickPaths   func()
 	OnCheckUpdate  func()
+	OnSymlink      func()
 }
 
 func LeftMenuItems(defs *MenuDefs) []MenuItem {
@@ -44,6 +45,7 @@ func FileMenuItems(defs *MenuDefs) []MenuItem {
 		{Label: "Move", Key: "F6", Action: defs.OnMove},
 		{Label: "MkDir", Key: "F7", Action: defs.OnMkDir},
 		{Label: "Delete", Key: "F8", Action: defs.OnDelete},
+		{Label: "Symlink", Key: "", Action: defs.OnSymlink},
 		{IsSep: true},
 		{Label: "Quit", Key: "F10", Action: defs.OnQuit},
 	}

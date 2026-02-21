@@ -842,6 +842,62 @@ func (a *App) MakeDir() {
 	a.TviewApp.SetFocus(a.Pages)
 }
 
+// CreateSymlink creates symbolic links in the inactive panel for selected entries.
+func (a *App) CreateSymlink() {
+	src := a.GetActivePanel()
+	dst := a.GetInactivePanel()
+
+	if src.IsRemote() || dst.IsRemote() {
+		a.showRemoteError("Symlink")
+		return
+	}
+
+	entries := src.GetSelectedOrCurrent()
+	if len(entries) == 0 {
+		return
+	}
+
+	createLinks := func(names map[string]string) {
+		for origName, linkName := range names {
+			target := filepath.Join(src.Path, origName)
+			linkPath := filepath.Join(dst.Path, linkName)
+			if err := os.Symlink(target, linkPath); err != nil {
+				dialog.ShowError(a.Pages, "Symlink error: "+err.Error(), func() {
+					a.closeDialog("error")
+				})
+				a.ModalOpen = true
+				a.TviewApp.SetFocus(a.Pages)
+				return
+			}
+		}
+		src.Selection.Clear()
+		src.Refresh()
+		dst.Refresh()
+	}
+
+	if len(entries) == 1 {
+		dialog.ShowInput(a.Pages, "Symlink", "Create symlink as:", entries[0].Name, func(name string) {
+			a.closeDialog("input")
+			if name == "" {
+				return
+			}
+			createLinks(map[string]string{entries[0].Name: name})
+		}, func() {
+			a.closeDialog("input")
+		})
+		a.ModalOpen = true
+		a.TviewApp.SetFocus(a.Pages)
+		return
+	}
+
+	// Multiple entries: create symlinks with original names
+	names := make(map[string]string, len(entries))
+	for _, e := range entries {
+		names[e.Name] = e.Name
+	}
+	createLinks(names)
+}
+
 // DeleteFiles handles F8.
 func (a *App) DeleteFiles() {
 	p := a.GetActivePanel()
@@ -1051,6 +1107,7 @@ func (a *App) showMenuDropdown() {
 			OnImportConfig: func() { a.DeactivateMenu(); a.ImportConfig() },
 			OnQuickPaths:   func() { a.DeactivateMenu(); a.ShowQuickPathsDialog() },
 			OnCheckUpdate:  func() { a.DeactivateMenu(); a.CheckForUpdates() },
+			OnSymlink:      func() { a.DeactivateMenu(); a.CreateSymlink() },
 		}
 	}
 
