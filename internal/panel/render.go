@@ -132,11 +132,11 @@ func fileColor(entry model.FileEntry) tcell.Color {
 	if entry.IsDir {
 		return theme.ColorDirectory
 	}
-	if entry.Mode&0111 != 0 {
-		return theme.ColorExecutable
-	}
 	if entry.IsLink {
 		return theme.ColorSymlink
+	}
+	if entry.Mode&0111 != 0 {
+		return theme.ColorExecutable
 	}
 
 	ext := strings.ToLower(entry.Name)
