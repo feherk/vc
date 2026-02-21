@@ -42,6 +42,9 @@ func RenderFull(table *tview.Table, entries []model.FileEntry, cursor int, sel *
 
 		// Name column
 		name := entry.Name
+		if entry.IsLink {
+			name = "@" + name
+		}
 		nameCell := tview.NewTableCell(name).
 			SetTextColor(fg).
 			SetBackgroundColor(bg).
@@ -103,7 +106,11 @@ func RenderBrief(table *tview.Table, entries []model.FileEntry, cursor int, sel 
 			fg = theme.ColorSelected
 		}
 
-		cell := tview.NewTableCell(entry.Name).
+		cellName := entry.Name
+		if entry.IsLink {
+			cellName = "@" + cellName
+		}
+		cell := tview.NewTableCell(cellName).
 			SetTextColor(fg).
 			SetBackgroundColor(bg).
 			SetExpansion(1)
@@ -127,6 +134,9 @@ func fileColor(entry model.FileEntry) tcell.Color {
 	}
 	if entry.Mode&0111 != 0 {
 		return theme.ColorExecutable
+	}
+	if entry.IsLink {
+		return theme.ColorSymlink
 	}
 
 	ext := strings.ToLower(entry.Name)

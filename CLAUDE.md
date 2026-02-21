@@ -86,7 +86,15 @@ Dual-pane terminal file manager written in Go + tview/tcell, classic DOS blue th
 - Media (.jpg, .mp3, .mp4, etc.) → `ColorMedia` (bright purple)
 - Source/config (.go, .json, .yaml, etc.) → `ColorSource` (bright cyan)
 - Encrypted (.enc) → `ColorEncrypted` (bright red)
+- Symlinks → `ColorSymlink` (bright cyan), `@` prefix in name
 - Color constants defined in `theme.go`
+
+### Symlink Display
+
+- `@` prefix before symlink names in both Full and Brief modes
+- `ColorSymlink` (bright cyan) for symlink entries in `fileColor()`
+- Footer shows `@ → /path/to/target` when cursor is on a symlink (instead of summary)
+- `HandleSelectionChanged()` calls `UpdateTitle()` to refresh footer on cursor move
 
 ### Encryption
 

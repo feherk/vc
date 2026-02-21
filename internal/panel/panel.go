@@ -139,9 +139,13 @@ func (p *Panel) UpdateTitle() {
 	p.Box.SetTitleAlign(tview.AlignLeft)
 	p.Box.SetTitleColor(theme.ColorHeaderFg)
 
-	summary := FormatSummary(p.Entries, p.Selection)
 	p.Box.Clear()
-	p.Box.AddText(summary, false, tview.AlignCenter, theme.ColorHeaderFg)
+	if e := p.CurrentEntry(); e != nil && e.IsLink && e.LinkTo != "" {
+		p.Box.AddText("@ → "+e.LinkTo, false, tview.AlignCenter, theme.ColorSymlink)
+	} else {
+		summary := FormatSummary(p.Entries, p.Selection)
+		p.Box.AddText(summary, false, tview.AlignCenter, theme.ColorHeaderFg)
+	}
 }
 
 // SetActive toggles the panel's active state (border color).
@@ -345,6 +349,7 @@ func (p *Panel) HandleSelectionChanged(row, col int) {
 	if p.Cursor >= len(p.Entries) {
 		p.Cursor = len(p.Entries) - 1
 	}
+	p.UpdateTitle()
 }
 
 // IsRemote returns true if the panel is connected to a remote server.
