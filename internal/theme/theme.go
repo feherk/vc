@@ -18,7 +18,7 @@ var (
 	ColorMedia        = tcell.NewRGBColor(170, 85, 255) // Bright purple
 	ColorSource       = tcell.NewRGBColor(85, 255, 255) // Bright cyan
 	ColorEncrypted    = tcell.NewRGBColor(255, 85, 85)  // Bright red
-	ColorSymlink      = tcell.NewRGBColor(85, 255, 255) // Bright cyan
+	ColorSymlink      = tcell.NewRGBColor(170, 170, 255) // Light blue-white
 
 	// Menu bar
 	ColorMenuBarFg = tcell.ColorBlack
