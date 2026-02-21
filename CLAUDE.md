@@ -77,6 +77,16 @@ Dual-pane terminal file manager written in Go + tview/tcell, classic DOS blue th
 - Recursive `showDialog` pattern (ServerDialog & QuickPathsDialog) for dialogs that reopen after sub-actions
 - Self-update: Commands → Check for Updates, GitHub API (`feherk/vc/releases/latest`), asset pattern `vc-{GOOS}-{GOARCH}`, atomic binary replace via temp file + `os.Rename`
 
+### File Type Color Coding
+
+- `fileColor()` in `render.go` — colors by extension after dir/executable checks
+- Archives (.zip, .tar, .gz, etc.) → `ColorArchive` (dark red)
+- Documents (.pdf, .doc, .xls, etc.) → `ColorDocument` (magenta)
+- Media (.jpg, .mp3, .mp4, etc.) → `ColorMedia` (bright purple)
+- Source/config (.go, .json, .yaml, etc.) → `ColorSource` (bright cyan)
+- Encrypted (.enc) → `ColorEncrypted` (bright red)
+- Color constants defined in `theme.go`
+
 ### Encryption
 
 - AES-256-GCM + Argon2id
