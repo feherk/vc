@@ -42,6 +42,7 @@ var (
 	ColorDialogFg     = tcell.ColorWhite
 	ColorDialogBg     = tcell.NewRGBColor(0, 128, 128)
 	ColorDialogBorder = tcell.ColorWhite
+	ColorMenuHotKey   = tcell.ColorYellow
 	ColorButtonFg     = tcell.ColorBlack
 	ColorButtonBg     = tcell.NewRGBColor(0, 170, 170)
 

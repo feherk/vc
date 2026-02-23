@@ -129,6 +129,14 @@ func (l *LocalFS) Walk(root string, fn WalkFunc) error {
 	})
 }
 
+func (l *LocalFS) Chmod(path string, mode os.FileMode) error {
+	return os.Chmod(path, mode)
+}
+
+func (l *LocalFS) Chown(path string, uid, gid int) error {
+	return os.Chown(path, uid, gid)
+}
+
 func (l *LocalFS) Join(elem ...string) string {
 	return filepath.Join(elem...)
 }

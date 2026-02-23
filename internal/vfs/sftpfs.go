@@ -237,6 +237,14 @@ func (s *SFTPFS) walk(dir string, fn WalkFunc) error {
 	return nil
 }
 
+func (s *SFTPFS) Chmod(path string, mode os.FileMode) error {
+	return s.client.Chmod(path, mode)
+}
+
+func (s *SFTPFS) Chown(path string, uid, gid int) error {
+	return s.client.Chown(path, uid, gid)
+}
+
 func (s *SFTPFS) Join(elem ...string) string {
 	return path.Join(elem...)
 }

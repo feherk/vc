@@ -44,6 +44,8 @@ type FileSystem interface {
 	Rename(oldpath, newpath string) error
 	ReadFile(path string) ([]byte, error)
 	Walk(root string, fn WalkFunc) error
+	Chmod(path string, mode os.FileMode) error
+	Chown(path string, uid, gid int) error
 	Join(elem ...string) string
 	Dir(path string) string
 	Base(path string) string

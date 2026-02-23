@@ -305,6 +305,14 @@ func (f *FTPFS) walkDir(dir string, fn WalkFunc) error {
 	return nil
 }
 
+func (f *FTPFS) Chmod(_ string, _ os.FileMode) error {
+	return fmt.Errorf("chmod not supported over FTP")
+}
+
+func (f *FTPFS) Chown(_ string, _, _ int) error {
+	return fmt.Errorf("chown not supported over FTP")
+}
+
 func (f *FTPFS) Join(elem ...string) string {
 	return path.Join(elem...)
 }

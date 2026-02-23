@@ -1,6 +1,8 @@
 package menu
 
 import (
+	"unicode"
+
 	"github.com/gdamore/tcell/v2"
 	"github.com/rivo/tview"
 
@@ -10,6 +12,7 @@ import (
 type MenuBar struct {
 	*tview.Box
 	Items    []string
+	HotKeys  []rune
 	Selected int
 	Active   bool
 	Version  string
@@ -18,8 +21,9 @@ type MenuBar struct {
 
 func NewMenuBar() *MenuBar {
 	m := &MenuBar{
-		Box:   tview.NewBox().SetBackgroundColor(theme.ColorMenuBarBg),
-		Items: []string{" Left ", " File ", " Commands ", " Right "},
+		Box:     tview.NewBox().SetBackgroundColor(theme.ColorMenuBarBg),
+		Items:   []string{" Left ", " File ", " Commands ", " Right "},
+		HotKeys: []rune{'L', 'F', 'C', 'R'},
 	}
 	return m
 }
@@ -42,12 +46,30 @@ func (m *MenuBar) Draw(screen tcell.Screen) {
 			bg = theme.ColorMenuBarFg
 		}
 
+		// Find hotkey position in item string
+		hotKeyPos := -1
+		if i < len(m.HotKeys) && m.HotKeys[i] != 0 {
+			upper := unicode.ToUpper(m.HotKeys[i])
+			for k, ch := range item {
+				if unicode.ToUpper(ch) == upper {
+					hotKeyPos = k
+					break
+				}
+			}
+		}
+
+		j := 0
 		for _, ch := range item {
 			if pos < x+width {
+				charFg := fg
+				if j == hotKeyPos {
+					charFg = theme.ColorMenuHotKey
+				}
 				screen.SetContent(pos, y, ch, nil,
-					tcell.StyleDefault.Foreground(fg).Background(bg))
+					tcell.StyleDefault.Foreground(charFg).Background(bg))
 				pos++
 			}
+			j++
 		}
 	}
 
@@ -76,6 +98,18 @@ func (m *MenuBar) MoveRight() {
 	if m.Selected >= len(m.Items) {
 		m.Selected = 0
 	}
+}
+
+// FindItemByHotKey returns the index of the menu bar item whose HotKey matches r (case-insensitive).
+// Returns -1 if no match is found.
+func (m *MenuBar) FindItemByHotKey(r rune) int {
+	upper := unicode.ToUpper(r)
+	for i, hk := range m.HotKeys {
+		if unicode.ToUpper(hk) == upper {
+			return i
+		}
+	}
+	return -1
 }
 
 // MouseHandler returns the mouse handler for the menu bar.

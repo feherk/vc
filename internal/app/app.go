@@ -14,10 +14,13 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"os/user"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 	"time"
+	"unicode"
 
 	"github.com/gdamore/tcell/v2"
 	"github.com/rivo/tview"
@@ -748,16 +751,15 @@ func (a *App) CopyFiles() {
 			target = filepath.Join(src.Path, target)
 		}
 
-		a.runWithSpinner("Copying", func() error {
-			for _, entry := range entries {
+		a.runWithSpinnerOverwrite("Copying", dstFS, entries,
+			func(entry model.FileEntry) string {
+				return dstFS.Join(target, entry.Name)
+			},
+			func(entry model.FileEntry) error {
 				srcPath := srcFS.Join(src.Path, entry.Name)
 				dstPath := dstFS.Join(target, entry.Name)
-				if err := fileops.Copy(context.Background(), srcFS, srcPath, dstFS, dstPath, nil); err != nil {
-					return err
-				}
-			}
-			return nil
-		})
+				return fileops.Copy(context.Background(), srcFS, srcPath, dstFS, dstPath, nil)
+			})
 	}, func() {
 		a.closeDialog("input")
 	})
@@ -794,19 +796,22 @@ func (a *App) MoveFiles() {
 			target = filepath.Join(src.Path, target)
 		}
 
-		a.runWithSpinner("Moving", func() error {
-			for _, entry := range entries {
+		singleEntry := len(entries) == 1
+		a.runWithSpinnerOverwrite("Moving", dstFS, entries,
+			func(entry model.FileEntry) string {
+				if singleEntry {
+					return target
+				}
+				return dstFS.Join(target, entry.Name)
+			},
+			func(entry model.FileEntry) error {
 				srcPath := srcFS.Join(src.Path, entry.Name)
 				dstPath := target
-				if len(entries) > 1 {
+				if !singleEntry {
 					dstPath = dstFS.Join(target, entry.Name)
 				}
-				if err := fileops.Move(context.Background(), srcFS, srcPath, dstFS, dstPath, nil); err != nil {
-					return err
-				}
-			}
-			return nil
-		})
+				return fileops.Move(context.Background(), srcFS, srcPath, dstFS, dstPath, nil)
+			})
 	}, func() {
 		a.closeDialog("input")
 	})
@@ -896,6 +901,128 @@ func (a *App) CreateSymlink() {
 		names[e.Name] = e.Name
 	}
 	createLinks(names)
+}
+
+// ShowChmodDialog opens the file attributes (chmod/chown) dialog.
+func (a *App) ShowChmodDialog() {
+	p := a.GetActivePanel()
+	entries := p.GetSelectedOrCurrent()
+	if len(entries) == 0 {
+		return
+	}
+
+	// Use the first entry for display; apply to all
+	entry := entries[0]
+	if entry.Name == ".." {
+		return
+	}
+
+	filePath := p.FS.Join(p.Path, entry.Name)
+
+	// Get file info
+	fi, err := p.FS.Stat(filePath)
+	if err != nil {
+		dialog.ShowError(a.Pages, "Stat error: "+err.Error(), func() {
+			a.closeDialog("error")
+		})
+		a.ModalOpen = true
+		a.TviewApp.SetFocus(a.Pages)
+		return
+	}
+
+	params := dialog.ChmodParams{
+		Name:    entry.Name,
+		Mode:    fi.Mode,
+		IsDir:   fi.IsDir,
+		IsLocal: p.FS.IsLocal(),
+		Index:   0,
+		Total:   len(entries),
+	}
+
+	// Get ownership info for local files
+	if p.FS.IsLocal() {
+		uid, gid, owner, group, err := dialog.GetFileOwnership(filePath)
+		if err == nil {
+			params.Owner = owner
+			params.Group = group
+			params.OwnerID = uid
+			params.GroupID = gid
+		}
+
+		// Check for ACL support on directories
+		if fi.IsDir && dialog.HasACLSupport() {
+			params.HasACL = true
+			if acl, err := dialog.GetDefaultACL(filePath); err == nil {
+				params.ACL = acl
+			}
+		}
+	}
+
+	dialog.ShowChmodDialog(a.Pages, params, func(result dialog.ChmodResult) {
+		a.closeDialog("chmod")
+		if !result.Changed {
+			return
+		}
+
+		// Apply to all entries
+		var firstErr error
+		for _, e := range entries {
+			if e.Name == ".." {
+				continue
+			}
+			ePath := p.FS.Join(p.Path, e.Name)
+
+			// Chmod
+			if err := p.FS.Chmod(ePath, result.Mode.Perm()); err != nil {
+				firstErr = err
+				break
+			}
+
+			// Chown (local only, if changed)
+			if p.FS.IsLocal() && (result.Owner != params.Owner || result.Group != params.Group) {
+				uid, gid := params.OwnerID, params.GroupID
+				if result.Owner != params.Owner {
+					uid = lookupUID(result.Owner)
+				}
+				if result.Group != params.Group {
+					gid = lookupGID(result.Group)
+				}
+				if uid >= 0 && gid >= 0 {
+					if err := p.FS.Chown(ePath, uid, gid); err != nil {
+						firstErr = err
+						break
+					}
+				}
+			}
+
+			// Default ACL (local directories only)
+			if p.FS.IsLocal() && params.HasACL && e.IsDir {
+				if result.ACL != params.ACL {
+					if err := dialog.SetDefaultACL(ePath, result.ACL); err != nil {
+						firstErr = err
+						break
+					}
+				}
+			}
+		}
+
+		if firstErr != nil {
+			dialog.ShowError(a.Pages, "Error: "+firstErr.Error(), func() {
+				a.closeDialog("error")
+			})
+			a.ModalOpen = true
+			a.TviewApp.SetFocus(a.Pages)
+			return
+		}
+
+		p.Selection.Clear()
+		p.Refresh()
+		a.GetInactivePanel().Refresh()
+	}, func() {
+		a.closeDialog("chmod")
+	})
+	a.ModalOpen = true
+	a.TviewApp.SetFocus(a.Pages)
 }
 
 // DeleteFiles handles F8.
@@ -1108,6 +1235,7 @@ func (a *App) showMenuDropdown() {
 			OnQuickPaths:   func() { a.DeactivateMenu(); a.ShowQuickPathsDialog() },
 			OnCheckUpdate:  func() { a.DeactivateMenu(); a.CheckForUpdates() },
 			OnSymlink:      func() { a.DeactivateMenu(); a.CreateSymlink() },
+			OnChmod:        func() { a.DeactivateMenu(); a.ShowChmodDialog() },
 		}
 	}
 
@@ -1180,6 +1308,22 @@ func (a *App) showMenuDropdown() {
 			a.SaveConfig()
 			a.TviewApp.Stop()
 			return nil
+		case tcell.KeyRune:
+			r := unicode.ToUpper(event.Rune())
+			// MenuBar hotkeys take priority (L/F/C/R navigate between menus)
+			if idx := a.MenuBar.FindItemByHotKey(r); idx >= 0 {
+				a.MenuBar.Selected = idx
+				a.showMenuDropdown()
+				return nil
+			}
+			// Dropdown item hotkeys
+			if idx := dd.FindItemByHotKey(r); idx >= 0 {
+				dd.Selected = idx
+				if action := dd.Items[idx].Action; action != nil {
+					action()
+				}
+				return nil
+			}
 		}
 		return event
 	})
@@ -1559,6 +1703,32 @@ func (a *App) showRemoteError(operation string) {
 	a.TviewApp.SetFocus(a.Pages)
 }
 
+// lookupUID resolves a username to uid. Returns -1 if not found.
+func lookupUID(name string) int {
+	u, err := user.Lookup(name)
+	if err != nil {
+		return -1
+	}
+	uid, err := strconv.Atoi(u.Uid)
+	if err != nil {
+		return -1
+	}
+	return uid
+}
+
+// lookupGID resolves a group name to gid. Returns -1 if not found.
+func lookupGID(name string) int {
+	g, err := user.LookupGroup(name)
+	if err != nil {
+		return -1
+	}
+	gid, err := strconv.Atoi(g.Gid)
+	if err != nil {
+		return -1
+	}
+	return gid
+}
+
 func entryNames(entries []model.FileEntry) string {
 	if len(entries) == 1 {
 		return entries[0].Name
@@ -1624,6 +1794,115 @@ func (a *App) runWithSpinner(displayName string, fn func() error) {
 			a.updatePanelStates()
 			if err != nil {
 				dialog.ShowError(a.Pages, "Error: "+err.Error(), func() {
+					a.closeDialog("error")
+				})
+				a.ModalOpen = true
+				a.TviewApp.SetFocus(a.Pages)
+				return
+			}
+			p.Selection.Clear()
+			p.Refresh()
+			a.GetInactivePanel().Refresh()
+		})
+	}()
+}
+
+// runWithSpinnerOverwrite is like runWithSpinner but checks for existing destination
+// files and shows an overwrite confirmation dialog before each operation.
+func (a *App) runWithSpinnerOverwrite(displayName string, dstFS vfs.FileSystem, entries []model.FileEntry, dstPathFn func(entry model.FileEntry) string, fn func(entry model.FileEntry) error) {
+	p := a.GetActivePanel()
+
+	spinView := tview.NewTextView()
+	spinView.SetBackgroundColor(theme.ColorDialogBg)
+	spinView.SetTextColor(theme.ColorDialogFg)
+	spinView.SetBorder(true)
+	spinView.SetBorderColor(theme.ColorDialogBorder)
+	spinView.SetTextAlign(tview.AlignCenter)
+
+	if len(displayName) > 20 {
+		displayName = displayName[:20] + "..."
+	}
+	boxW := len(displayName) + 6
+	if boxW < 18 {
+		boxW = 18
+	}
+	_, _, screenW, screenH := a.Pages.GetInnerRect()
+	spinView.SetRect(screenW-boxW-1, screenH-4, boxW, 3)
+	spinView.SetText(displayName + " |")
+
+	a.Pages.AddPage("spinner", spinView, false, true)
+	a.focusActiveTable()
+
+	go func() {
+		spinChars := [4]rune{'|', '/', '-', '\\'}
+		spinIdx := 0
+		done := make(chan struct{})
+
+		go func() {
+			ticker := time.NewTicker(150 * time.Millisecond)
+			defer ticker.Stop()
+			for {
+				select {
+				case <-done:
+					return
+				case <-ticker.C:
+					spinIdx = (spinIdx + 1) % 4
+					ch := spinChars[spinIdx]
+					a.TviewApp.QueueUpdateDraw(func() {
+						spinView.SetText(fmt.Sprintf("%s %c", displayName, ch))
+					})
+				}
+			}
+		}()
+
+		var firstErr error
+		overwriteAll := false
+
+		for _, entry := range entries {
+			if !overwriteAll {
+				dstPath := dstPathFn(entry)
+				if _, err := dstFS.Stat(dstPath); err == nil {
+					// Destination exists — ask user
+					ch := make(chan dialog.OverwriteChoice, 1)
+					a.TviewApp.QueueUpdateDraw(func() {
+						a.ModalOpen = true
+						dialog.ShowOverwrite(a.Pages, entry.Name, func(choice dialog.OverwriteChoice) {
+							a.Pages.RemovePage("overwrite")
+							a.ModalOpen = false
+							ch <- choice
+						})
+						a.TviewApp.SetFocus(a.Pages)
+					})
+					choice := <-ch
+					switch choice {
+					case dialog.OverwriteNo:
+						continue
+					case dialog.OverwriteAll:
+						overwriteAll = true
+					case dialog.OverwriteCancel:
+						goto finish
+					}
+					// OverwriteYes → proceed
+				}
+			}
+
+			if err := fn(entry); err != nil {
+				firstErr = err
+				break
+			}
+		}
+
+	finish:
+		close(done)
+
+		a.TviewApp.QueueUpdateDraw(func() {
+			saved := a.activePanel
+			a.Pages.RemovePage("spinner")
+			a.activePanel = saved
+			a.focusActiveTable()
+			a.updatePanelStates()
+			if firstErr != nil {
+				dialog.ShowError(a.Pages, "Error: "+firstErr.Error(), func() {
 					a.closeDialog("error")
 				})
 				a.ModalOpen = true

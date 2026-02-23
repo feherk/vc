@@ -1,6 +1,8 @@
 package menu
 
 import (
+	"unicode"
+
 	"github.com/gdamore/tcell/v2"
 	"github.com/rivo/tview"
 
@@ -12,6 +14,7 @@ type MenuItem struct {
 	Key    string
 	Action func()
 	IsSep  bool
+	HotKey rune
 }
 
 type Dropdown struct {
@@ -135,10 +138,24 @@ func (d *Dropdown) Draw(screen tcell.Screen) {
 				tcell.StyleDefault.Foreground(fg).Background(bg))
 		}
 
+		hotKeyPos := -1
+		if item.HotKey != 0 {
+			upper := unicode.ToUpper(item.HotKey)
+			for k, ch := range item.Label {
+				if unicode.ToUpper(ch) == upper {
+					hotKeyPos = k
+					break
+				}
+			}
+		}
 		for j, ch := range item.Label {
 			if j < width-2 {
+				charFg := fg
+				if j == hotKeyPos {
+					charFg = theme.ColorMenuHotKey
+				}
 				screen.SetContent(ix+1+j, iy, ch, nil,
-					tcell.StyleDefault.Foreground(fg).Background(bg))
+					tcell.StyleDefault.Foreground(charFg).Background(bg))
 			}
 		}
 
@@ -192,4 +209,19 @@ func (d *Dropdown) MouseHandler() func(action tview.MouseAction, event *tcell.Ev
 		}
 		return true, nil
 	})
+}
+
+// FindItemByHotKey returns the index of the first non-separator item whose HotKey matches r (case-insensitive).
+// Returns -1 if no match is found.
+func (d *Dropdown) FindItemByHotKey(r rune) int {
+	upper := unicode.ToUpper(r)
+	for i, item := range d.Items {
+		if item.IsSep || item.HotKey == 0 {
+			continue
+		}
+		if unicode.ToUpper(item.HotKey) == upper {
+			return i
+		}
+	}
+	return -1
 }
