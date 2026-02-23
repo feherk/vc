@@ -105,11 +105,15 @@ Dual-pane terminal file manager written in Go + tview/tcell, classic DOS blue th
 
 - Custom `chmodBox` widget based on `formatBox` pattern (direct `screen.SetContent`, no `DrawForSubclass`)
 - ALL key handling in `Box.SetInputCapture` (not `InputHandler`) — tview routing quirk with Pages
-- Sections: Tulaj/Csoport/Egyeb perm bits → Owner input → Group input → [ACL] → Buttons
+- Sections: Tulaj/Csoport/Egyeb perm bits → Special bits (SetUID/SetGID/Sticky) → Owner input → Group input → [ACL] → Buttons
 - Tab navigates sections, Left/Right within section, Space toggles bit, r/w/x keys toggle specific bit
+- Special bits: `[x] SetUID  [ ] SetGID  [ ] Sticky` checkboxes, Space toggles
+- Octal display: shows `2775` (4-digit) when special bits set, `775` (3-digit) when not
 - Owner/Group: Enter opens searchable list picker overlay, typing filters, Up/Down navigates
 - `getfacl` must be called WITHOUT `-d` flag — with `-d` the output omits `default:` prefix but parser expects it
 - VFS interface: `Chmod(path, mode)` and `Chown(path, uid, gid)` on LocalFS/SFTPFS/FTPFS
+- **Special bits must use Go `os.ModeSetuid`/`os.ModeSetgid`/`os.ModeSticky` flags** (bits 28/27/26), NOT Unix octal values (04000/02000/01000 = bits 11/10/9). `os.Chmod` converts via `syscallMode()` internally.
+- **Linux kernel silently clears setuid/setgid/sticky** if user lacks CAP_FSETID and file's group is not in user's groups — `chmod` returns 0 (no error!) but bit is not set. Post-chmod stat() verification detects this and shows warning.
 - `ListUsers()`/`ListGroups()` parse `/etc/passwd`/`/etc/group` (unix build tag)
 
 ### Encryption
