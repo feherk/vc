@@ -20,6 +20,8 @@ Built with Go, using [tview](https://github.com/rivo/tview) and [tcell](https://
 - Windows drive switching (Backspace at drive root)
 - Shell command execution from built-in command line
 - Symlink display with `@` prefix and link target in footer
+- File attributes dialog: chmod/chown with searchable owner/group picker
+- Default ACL support for directories on Linux (`sudo apt install acl`)
 - Classic DOS blue theme
 
 ## Installation

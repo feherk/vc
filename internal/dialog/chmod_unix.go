@@ -42,7 +42,7 @@ func GetFileOwnership(path string) (uid, gid int, owner, group string, err error
 // GetDefaultACL reads the default ACL of a directory using getfacl.
 func GetDefaultACL(path string) ([3][3]bool, error) {
 	var acl [3][3]bool
-	cmd := exec.Command("getfacl", "-d", "-p", path)
+	cmd := exec.Command("getfacl", "-p", path)
 	out, err := cmd.Output()
 	if err != nil {
 		return acl, err
