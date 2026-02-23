@@ -979,6 +979,18 @@ func (a *App) ShowChmodDialog() {
 				break
 			}
 
+			// Verify special bits were applied (kernel may silently clear them)
+			if p.FS.IsLocal() && chmodMode&(os.ModeSetuid|os.ModeSetgid|os.ModeSticky) != 0 {
+				if after, err := p.FS.Stat(ePath); err == nil {
+					applied := after.Mode & (os.ModeSetuid | os.ModeSetgid | os.ModeSticky)
+					wanted := chmodMode & (os.ModeSetuid | os.ModeSetgid | os.ModeSticky)
+					if applied != wanted {
+						firstErr = fmt.Errorf("special bit nem alkalmazhato (setuid/setgid/sticky) — szukseges lehet: sudo")
+						break
+					}
+				}
+			}
+
 			// Chown (local only, if changed)
 			if p.FS.IsLocal() && (result.Owner != params.Owner || result.Group != params.Group) {
 				uid, gid := params.OwnerID, params.GroupID
