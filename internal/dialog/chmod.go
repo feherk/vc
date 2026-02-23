@@ -37,20 +37,22 @@ type ChmodResult struct {
 }
 
 // Sections:
-//   0 = Tulaj perms [rwx]
-//   1 = Csoport perms [rwx]
-//   2 = Egyeb perms [rwx]
-//   3 = Owner input
-//   4 = Group input
-//   5 = ACL (if available, one section with 9 positions)
-//   last = Buttons
-
+//
+//	0 = Tulaj perms [rwx]
+//	1 = Csoport perms [rwx]
+//	2 = Egyeb perms [rwx]
+//	3 = Special bits (SetUID, SetGID, Sticky)
+//	4 = Owner input
+//	5 = Group input
+//	6 = ACL (if available, one section with 9 positions)
+//	last = Buttons
 const (
-	secPermOwner = 0
-	secPermGroup = 1
-	secPermOther = 2
-	secOwnerInput = 3
-	secGroupInput = 4
+	secPermOwner  = 0
+	secPermGroup  = 1
+	secPermOther  = 2
+	secSpecial    = 3
+	secOwnerInput = 4
+	secGroupInput = 5
 )
 
 type chmodBox struct {
@@ -60,6 +62,7 @@ type chmodBox struct {
 	onCancel func()
 
 	perms    [3][3]bool
+	special  [3]bool // [0]=SetUID, [1]=SetGID, [2]=Sticky
 	ownerBuf string
 	groupBuf string
 	acl      [3][3]bool
@@ -99,6 +102,11 @@ func newChmodBox(params ChmodParams, callback func(ChmodResult), onCancel func()
 		b.perms[i][2] = mode&(1<<shift) != 0
 	}
 
+	// Special bits
+	b.special[0] = params.Mode&os.ModeSetuid != 0
+	b.special[1] = params.Mode&os.ModeSetgid != 0
+	b.special[2] = params.Mode&os.ModeSticky != 0
+
 	// ALL key handling in SetInputCapture — this runs reliably
 	// in tview's pipeline before InputHandler, for all keys.
 	b.Box.SetInputCapture(func(event *tcell.EventKey) *tcell.EventKey {
@@ -123,6 +131,15 @@ func (b *chmodBox) buildMode() os.FileMode {
 			mode |= 1 << shift
 		}
 	}
+	if b.special[0] {
+		mode |= os.ModeSetuid
+	}
+	if b.special[1] {
+		mode |= os.ModeSetgid
+	}
+	if b.special[2] {
+		mode |= os.ModeSticky
+	}
 	if b.params.IsDir {
 		mode |= os.ModeDir
 	}
@@ -130,6 +147,19 @@ func (b *chmodBox) buildMode() os.FileMode {
 }
 
 func (b *chmodBox) octalString() string {
+	sp := 0
+	if b.special[0] {
+		sp |= 4
+	}
+	if b.special[1] {
+		sp |= 2
+	}
+	if b.special[2] {
+		sp |= 1
+	}
+	if sp > 0 {
+		return fmt.Sprintf("%d%03o", sp, b.buildMode().Perm())
+	}
 	return fmt.Sprintf("%03o", b.buildMode().Perm())
 }
 
@@ -137,13 +167,13 @@ func (b *chmodBox) showACL() bool {
 	return b.params.HasACL && b.params.IsDir && b.params.IsLocal
 }
 
-func (b *chmodBox) aclSection() int { return 5 }
+func (b *chmodBox) aclSection() int { return 6 }
 
 func (b *chmodBox) buttonsSection() int {
 	if b.showACL() {
-		return 6
+		return 7
 	}
-	return 5
+	return 6
 }
 
 func (b *chmodBox) maxSections() int {
@@ -156,7 +186,7 @@ func (b *chmodBox) Draw(screen tcell.Screen) {
 	x, y, width, totalH := b.GetRect()
 
 	boxW := 54
-	boxH := 10
+	boxH := 11 // extra row for special bits
 	if b.showACL() {
 		boxH += 3
 	}
@@ -207,6 +237,10 @@ func (b *chmodBox) Draw(screen tcell.Screen) {
 	b.drawPermBits(screen, bx+2, row, fg, bg)
 	b.drawOwnerGroup(screen, bx+28, row, fg, bg)
 
+	// Special bits
+	row++
+	b.drawSpecialBits(screen, bx+2, row, fg, bg)
+
 	// Octal
 	row++
 	chmodDrawStr(screen, bx+2, row, fmt.Sprintf("Octal: %s", b.octalString()), fg, bg)
@@ -256,6 +290,29 @@ func (b *chmodBox) drawPermBits(screen tcell.Screen, x, y int, fg, bg tcell.Colo
 		}
 		chmodDrawStr(screen, cx, y, "]", fg, bg)
 		cx += 3
+	}
+}
+
+func (b *chmodBox) drawSpecialBits(screen tcell.Screen, x, y int, fg, bg tcell.Color) {
+	labels := [3]string{"SetUID", "SetGID", "Sticky"}
+	cx := x
+	for i := 0; i < 3; i++ {
+		ch := ' '
+		if b.special[i] {
+			ch = 'x'
+		}
+		// Draw checkbox
+		chmodDrawStr(screen, cx, y, "[", fg, bg)
+		chFg, chBg := fg, bg
+		if b.focusSection == secSpecial && b.focusCol == i {
+			chFg = theme.ColorButtonFg
+			chBg = theme.ColorButtonBg
+		}
+		screen.SetContent(cx+1, y, ch, nil,
+			tcell.StyleDefault.Foreground(chFg).Background(chBg))
+		chmodDrawStr(screen, cx+2, y, "] ", fg, bg)
+		chmodDrawStr(screen, cx+4, y, labels[i], fg, bg)
+		cx += 4 + runeLen(labels[i]) + 2
 	}
 }
 
@@ -460,6 +517,8 @@ func (b *chmodBox) handleKey(event *tcell.EventKey) {
 			b.toggleCurrent()
 		} else if b.focusSection >= secPermOwner && b.focusSection <= secPermOther {
 			b.togglePermByKey(ch, b.focusSection)
+		} else if b.focusSection == secSpecial {
+			// no letter-toggle for special bits, Space only
 		} else if b.showACL() && b.focusSection == b.aclSection() {
 			b.toggleACLByKey(ch, b.focusCol/3)
 		}
@@ -503,6 +562,10 @@ func (b *chmodBox) moveLeft() {
 		if b.focusCol > 0 {
 			b.focusCol--
 		}
+	case b.focusSection == secSpecial:
+		if b.focusCol > 0 {
+			b.focusCol--
+		}
 	case b.showACL() && b.focusSection == b.aclSection():
 		if b.focusCol > 0 {
 			b.focusCol--
@@ -517,6 +580,10 @@ func (b *chmodBox) moveLeft() {
 func (b *chmodBox) moveRight() {
 	switch {
 	case b.focusSection >= secPermOwner && b.focusSection <= secPermOther:
+		if b.focusCol < 2 {
+			b.focusCol++
+		}
+	case b.focusSection == secSpecial:
 		if b.focusCol < 2 {
 			b.focusCol++
 		}
@@ -535,6 +602,8 @@ func (b *chmodBox) toggleCurrent() {
 	switch {
 	case b.focusSection >= secPermOwner && b.focusSection <= secPermOther:
 		b.perms[b.focusSection][b.focusCol] = !b.perms[b.focusSection][b.focusCol]
+	case b.focusSection == secSpecial:
+		b.special[b.focusCol] = !b.special[b.focusCol]
 	case b.showACL() && b.focusSection == b.aclSection():
 		grp := b.focusCol / 3
 		bit := b.focusCol % 3
@@ -696,7 +765,7 @@ func (b *chmodBox) MouseHandler() func(action tview.MouseAction, event *tcell.Ev
 		x, y, width, totalH := b.GetRect()
 
 		boxW := 54
-		boxH := 10
+		boxH := 11
 		if b.showACL() {
 			boxH += 3
 		}
@@ -807,4 +876,3 @@ func removeLastRune(s string) string {
 	runes := []rune(s)
 	return string(runes[:len(runes)-1])
 }
-

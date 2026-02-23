@@ -972,8 +972,18 @@ func (a *App) ShowChmodDialog() {
 			}
 			ePath := p.FS.Join(p.Path, e.Name)
 
-			// Chmod
-			if err := p.FS.Chmod(ePath, result.Mode.Perm()); err != nil {
+			// Chmod (include special bits: setuid/setgid/sticky)
+			chmodMode := result.Mode.Perm()
+			if result.Mode&os.ModeSetuid != 0 {
+				chmodMode |= 04000
+			}
+			if result.Mode&os.ModeSetgid != 0 {
+				chmodMode |= 02000
+			}
+			if result.Mode&os.ModeSticky != 0 {
+				chmodMode |= 01000
+			}
+			if err := p.FS.Chmod(ePath, chmodMode); err != nil {
 				firstErr = err
 				break
 			}
