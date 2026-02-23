@@ -17,6 +17,9 @@ Dual-pane terminal file manager written in Go + tview/tcell, classic DOS blue th
 - `internal/menu/menubar.go` — MenuBar widget with mouse click support
 - `internal/dialog/server.go` — server list dialog (F1, uses tview.Table NOT List)
 - `internal/dialog/format.go` — format selection dialog (custom formatBox widget)
+- `internal/dialog/chmod.go` — chmod/chown dialog (custom chmodBox widget, formatBox pattern)
+- `internal/dialog/chmod_unix.go` — Unix: file ownership, ACL read/write via getfacl/setfacl
+- `internal/dialog/chmod_other.go` — non-Unix stubs
 - `internal/dialog/quickpaths.go` — Quick Paths dialog
 - `internal/dialog/password.go` — password dialog with optional confirm mode
 - `internal/fnbar/fnbar.go` — function key bar at bottom, clickable
@@ -77,6 +80,7 @@ Dual-pane terminal file manager written in Go + tview/tcell, classic DOS blue th
 - Recursive `showDialog` pattern (ServerDialog & QuickPathsDialog) for dialogs that reopen after sub-actions
 - Self-update: Commands → Check for Updates, GitHub API (`feherk/vc/releases/latest`), asset pattern `vc-{GOOS}-{GOARCH}`, atomic binary replace via temp file + `os.Rename`
 - Symlink: File menu → Symlink, creates symlinks in inactive panel dir pointing to active panel entries. Single entry → input dialog for link name, multiple → original names. Local-only (`os.Symlink`), no spinner needed.
+- File attributes: File menu → Attribútum (hotkey A), chmod/chown dialog with custom chmodBox widget. VFS Chmod/Chown on LocalFS, SFTPFS (supported), FTPFS (error). Owner/group picker via Enter on input field, searchable list from `/etc/passwd`/`/etc/group`. Default ACL section for directories on Linux when `getfacl`/`setfacl` installed (`sudo apt install acl`). Multi-file: applies same settings to all selected entries. Build tags: `chmod_unix.go` (unix) / `chmod_other.go` (!unix).
 
 ### File Type Color Coding
 
@@ -96,6 +100,17 @@ Dual-pane terminal file manager written in Go + tview/tcell, classic DOS blue th
 - Footer shows `@ → /path/to/target` when cursor is on a symlink (instead of summary)
 - `HandleSelectionChanged()` calls `UpdateTitle()` to refresh footer on cursor move
 - Listed in README Features section
+
+### File Attributes (Chmod/Chown)
+
+- Custom `chmodBox` widget based on `formatBox` pattern (direct `screen.SetContent`, no `DrawForSubclass`)
+- ALL key handling in `Box.SetInputCapture` (not `InputHandler`) — tview routing quirk with Pages
+- Sections: Tulaj/Csoport/Egyeb perm bits → Owner input → Group input → [ACL] → Buttons
+- Tab navigates sections, Left/Right within section, Space toggles bit, r/w/x keys toggle specific bit
+- Owner/Group: Enter opens searchable list picker overlay, typing filters, Up/Down navigates
+- `getfacl` must be called WITHOUT `-d` flag — with `-d` the output omits `default:` prefix but parser expects it
+- VFS interface: `Chmod(path, mode)` and `Chown(path, uid, gid)` on LocalFS/SFTPFS/FTPFS
+- `ListUsers()`/`ListGroups()` parse `/etc/passwd`/`/etc/group` (unix build tag)
 
 ### Encryption
 
