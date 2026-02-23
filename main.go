@@ -9,7 +9,7 @@ import (
 	"github.com/feherkaroly/vc/internal/config"
 )
 
-var Version = "2.7.1"
+var Version = "2.7.2"
 
 func main() {
 	showVersion := flag.Bool("version", false, "Show version")
