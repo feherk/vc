@@ -12,7 +12,7 @@ Built with Go, using [tview](https://github.com/rivo/tview) and [tcell](https://
 - Zip compression (F2) for selected files/directories
 - Open files with system default application (Enter)
 - File editor integration via `$EDITOR` (F4)
-- Quick search (Ctrl+S)
+- Inline search — just start typing to jump to matching files
 - Directory size calculation (Space)
 - Multi-file selection (Insert/F11)
 - Sorting by name, extension, size, or time
@@ -77,8 +77,10 @@ go install github.com/feherkaroly/vc@latest
 | Backspace | Go to parent directory / Change drive (Windows) |
 | Insert/F11 | Toggle selection |
 | Space | Calculate directory size |
-| Ctrl+S | Quick search |
+| Type letters | Inline search — jump to matching file/directory |
+| Escape | Cancel inline search |
 | Ctrl+R | Refresh both panels |
+| Ctrl+Enter | Insert current filename into command line |
 | F1 | Server connections (SFTP/FTPS) |
 | F2 | Zip selected files |
 | F3 | View file / View zip contents |
@@ -89,7 +91,7 @@ go install github.com/feherkaroly/vc@latest
 | F8 | Delete |
 | F9 | Menu |
 | F10 | Quit |
-| F12 | Copy filename to command line |
+| F12 | Focus command line |
 
 ## License
 

@@ -71,14 +71,10 @@ func (a *App) SetupKeyBindings() {
 			return nil
 
 		case tcell.KeyF12:
-			e := a.GetActivePanel().CurrentEntry()
-			if e != nil && e.Name != ".." {
-				if !a.CmdLineFocused {
-					a.CmdLineFocused = true
-					a.CmdLine.SetText("")
-					a.TviewApp.SetFocus(a.CmdLine)
-				}
-				a.CmdLine.SetText(a.CmdLine.GetText() + e.Name)
+			if !a.CmdLineFocused {
+				a.CmdLineFocused = true
+				a.CmdLine.SetText("")
+				a.TviewApp.SetFocus(a.CmdLine)
 			}
 			return nil
 
@@ -101,6 +97,15 @@ func (a *App) SetupKeyBindings() {
 				return event
 			}
 			p := a.GetActivePanel()
+			if p.SearchBuf != "" {
+				runes := []rune(p.SearchBuf)
+				p.SearchBuf = string(runes[:len(runes)-1])
+				if p.SearchBuf != "" {
+					a.searchPrefixMatch(p)
+				}
+				a.resetSearchTimer(p)
+				return nil
+			}
 			if atRoot := p.GoParent(); atRoot && !p.IsRemote() {
 				a.ShowDriveSelector()
 			}
@@ -108,10 +113,23 @@ func (a *App) SetupKeyBindings() {
 			return nil
 
 		case tcell.KeyEnter:
+			if event.Modifiers()&tcell.ModCtrl != 0 {
+				e := a.GetActivePanel().CurrentEntry()
+				if e != nil && e.Name != ".." {
+					if !a.CmdLineFocused {
+						a.CmdLineFocused = true
+						a.CmdLine.SetText("")
+						a.TviewApp.SetFocus(a.CmdLine)
+					}
+					a.CmdLine.SetText(a.CmdLine.GetText() + e.Name)
+				}
+				return nil
+			}
 			if a.CmdLineFocused {
 				return event
 			}
 			p := a.GetActivePanel()
+			p.SearchBuf = ""
 			entry, atRoot := p.Enter()
 			if atRoot && !p.IsRemote() {
 				a.ShowDriveSelector()
@@ -128,15 +146,22 @@ func (a *App) SetupKeyBindings() {
 			a.CmdLine.SetPath(p.Path)
 			return nil
 
-		case tcell.KeyCtrlS:
-			if !a.CmdLineFocused {
-				a.QuickSearch()
-				return nil
-			}
-
 		case tcell.KeyCtrlN:
 			if !a.CmdLineFocused {
 				a.ShowQuickPathsDialog()
+				return nil
+			}
+
+		case tcell.KeyEscape:
+			if a.CmdLineFocused {
+				return event
+			}
+			p := a.GetActivePanel()
+			if p.SearchBuf != "" {
+				p.SearchBuf = ""
+				if a.searchTimer != nil {
+					a.searchTimer.Stop()
+				}
 				return nil
 			}
 
@@ -146,7 +171,7 @@ func (a *App) SetupKeyBindings() {
 				return nil
 			}
 			if !a.CmdLineFocused {
-				a.FocusCmdLine(event.Rune())
+				a.InlineSearch(event.Rune())
 				return nil
 			}
 		}
@@ -278,6 +303,7 @@ func (a *App) SetupKeyBindings() {
 // switchPanel toggles the active panel.
 func (a *App) switchPanel() {
 	a.CmdLineFocused = false
+	a.GetActivePanel().SearchBuf = ""
 	if a.activePanel == 0 {
 		a.activePanel = 1
 		a.TviewApp.SetFocus(a.RightPanel.Table)
