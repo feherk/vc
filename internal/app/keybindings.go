@@ -83,7 +83,7 @@ func (a *App) SetupKeyBindings() {
 			a.GetInactivePanel().Refresh()
 			return nil
 
-		case tcell.KeyInsert, tcell.KeyF11:
+		case tcell.KeyInsert, tcell.KeyCtrlS:
 			a.GetActivePanel().ToggleSelection()
 			return nil
 

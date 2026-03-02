@@ -14,7 +14,7 @@ Built with Go, using [tview](https://github.com/rivo/tview) and [tcell](https://
 - File editor integration via `$EDITOR` (F4)
 - Inline search — just start typing to jump to matching files
 - Directory size calculation (Space)
-- Multi-file selection (Insert/F11)
+- Multi-file selection (Insert/Ctrl+S)
 - Sorting by name, extension, size, or time
 - SFTP/FTPS remote filesystem support (F1)
 - Windows drive switching (Backspace at drive root)
@@ -75,7 +75,7 @@ go install github.com/feherkaroly/vc@latest
 | Tab | Switch panel |
 | Enter | Open file / Enter directory |
 | Backspace | Go to parent directory / Change drive (Windows) |
-| Insert/F11 | Toggle selection |
+| Insert/Ctrl+S | Toggle selection |
 | Space | Calculate directory size |
 | Type letters | Inline search — jump to matching file/directory |
 | Escape | Cancel inline search |
