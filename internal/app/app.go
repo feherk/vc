@@ -63,6 +63,7 @@ type App struct {
 	lastClickTable *tview.Table
 
 	activeDropdown *menu.Dropdown
+	searchTimer    *time.Timer
 }
 
 var Version string
@@ -151,6 +152,12 @@ func New(leftPath, rightPath string) *App {
 			a.TviewApp.Stop()
 		case 11:
 			a.GetActivePanel().ToggleSelection()
+		case 12:
+			if !a.CmdLineFocused {
+				a.CmdLineFocused = true
+				a.CmdLine.SetText("")
+				a.TviewApp.SetFocus(a.CmdLine)
+			}
 		}
 		go a.TviewApp.QueueUpdateDraw(func() {})
 	}
@@ -1089,56 +1096,33 @@ func (a *App) CalcDirSize() {
 	}()
 }
 
-// QuickSearch opens a live search input — the cursor moves as you type.
-func (a *App) QuickSearch() {
+// InlineSearch appends a character to the panel's search buffer and jumps to matching entry.
+func (a *App) InlineSearch(ch rune) {
 	p := a.GetActivePanel()
-
-	input := tview.NewInputField()
-	input.SetLabel(" Search: ")
-	input.SetFieldWidth(30)
-	input.SetBackgroundColor(theme.ColorDialogBg)
-	input.SetFieldBackgroundColor(theme.ColorDialogBg)
-	input.SetFieldTextColor(tcell.ColorWhite)
-	input.SetLabelColor(tcell.ColorYellow)
-	input.SetBorder(true)
-	input.SetBorderColor(theme.ColorDialogBorder)
-	input.SetTitle(" Search ")
-
-	input.SetChangedFunc(func(text string) {
-		if text == "" {
-			return
-		}
-		s := strings.ToLower(text)
-		for i, e := range p.Entries {
-			if strings.HasPrefix(strings.ToLower(e.Name), s) {
-				p.SetCursor(i)
-				p.Render()
-				break
-			}
-		}
-	})
-
-	input.SetDoneFunc(func(key tcell.Key) {
-		a.closeDialog("search")
-	})
-
-	flex := tview.NewFlex().SetDirection(tview.FlexRow).
-		AddItem(nil, 0, 1, false).
-		AddItem(tview.NewFlex().SetDirection(tview.FlexColumn).
-			AddItem(nil, 0, 1, false).
-			AddItem(input, 44, 0, true).
-			AddItem(nil, 0, 1, false),
-			3, 0, true).
-		AddItem(nil, 0, 1, false)
-
-	a.showDialog("search", flex)
+	p.SearchBuf += string(ch)
+	a.searchPrefixMatch(p)
+	a.resetSearchTimer(p)
 }
 
-// FocusCmdLine switches focus to the command line and types the initial character.
-func (a *App) FocusCmdLine(ch rune) {
-	a.CmdLineFocused = true
-	a.CmdLine.SetText(string(ch))
-	a.TviewApp.SetFocus(a.CmdLine)
+func (a *App) searchPrefixMatch(p *panel.Panel) {
+	s := strings.ToLower(p.SearchBuf)
+	for i, e := range p.Entries {
+		if strings.HasPrefix(strings.ToLower(e.Name), s) {
+			p.SetCursor(i)
+			break
+		}
+	}
+}
+
+func (a *App) resetSearchTimer(p *panel.Panel) {
+	if a.searchTimer != nil {
+		a.searchTimer.Stop()
+	}
+	a.searchTimer = time.AfterFunc(1*time.Second, func() {
+		a.TviewApp.QueueUpdate(func() {
+			p.SearchBuf = ""
+		})
+	})
 }
 
 // ExecuteCommand runs a shell command.

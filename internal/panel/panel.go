@@ -217,6 +217,7 @@ func (p *Panel) NavigateTo(newPath string, focusName string) {
 
 	p.Path = newPath
 	p.Selection.Clear()
+	p.SearchBuf = ""
 	p.Cursor = 0
 
 	if err := p.loadEntries(); err != nil {
