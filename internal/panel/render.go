@@ -15,6 +15,7 @@ import (
 // RenderFull renders the panel table in Full mode (Name, Size, Date, Time).
 func RenderFull(table *tview.Table, entries []model.FileEntry, cursor int, sel *model.Selection, active bool) {
 	table.Clear()
+	table.SetOffset(0, 0)
 
 	// Header row
 	headers := []string{"Name", "Size", "Date", "Time"}
@@ -84,6 +85,7 @@ func RenderFull(table *tview.Table, entries []model.FileEntry, cursor int, sel *
 // RenderBrief renders the panel table in Brief mode (names in multiple columns).
 func RenderBrief(table *tview.Table, entries []model.FileEntry, cursor int, sel *model.Selection, active bool, height int) {
 	table.Clear()
+	table.SetOffset(0, 0)
 
 	if height <= 0 {
 		height = 20

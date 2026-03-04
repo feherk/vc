@@ -152,6 +152,27 @@ func (a *App) SetupKeyBindings() {
 				return nil
 			}
 
+		case tcell.KeyRight:
+			if a.CmdLineFocused {
+				return event
+			}
+			p := a.GetActivePanel()
+			if p.Mode == panel.ModeBrief {
+				_, _, _, h := p.Table.GetInnerRect()
+				if h <= 0 {
+					h = 20
+				}
+				col := p.Cursor / h
+				row := p.Cursor % h
+				targetIdx := (col+1)*h + row
+				if targetIdx >= len(p.Entries) {
+					// Target row doesn't exist in next column — jump to last entry
+					p.SetCursor(len(p.Entries) - 1)
+					return nil
+				}
+			}
+			return event
+
 		case tcell.KeyEscape:
 			if a.CmdLineFocused {
 				return event
