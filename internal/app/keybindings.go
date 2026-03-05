@@ -158,7 +158,7 @@ func (a *App) SetupKeyBindings() {
 			}
 			p := a.GetActivePanel()
 			if p.Mode == panel.ModeBrief {
-				_, _, _, h := p.Table.GetInnerRect()
+				h := p.BriefRows
 				if h <= 0 {
 					h = 20
 				}

@@ -26,6 +26,7 @@ type Panel struct {
 	Active    bool
 
 	SearchBuf string
+	BriefRows int // rows used in last Brief mode render (for cursor navigation)
 
 	FS              vfs.FileSystem
 	ConnectedServer string
@@ -118,8 +119,8 @@ func (p *Panel) Render() {
 	case ModeBrief:
 		p.Table.SetFixed(0, 0)
 		p.Table.SetSelectable(true, true) // cell-level selection
-		_, _, _, h := p.Table.GetInnerRect()
-		RenderBrief(p.Table, p.Entries, p.Cursor, p.Selection, p.Active, h)
+		p.BriefRows = p.calcBriefRows()
+		RenderBrief(p.Table, p.Entries, p.Cursor, p.Selection, p.Active, p.BriefRows)
 	default:
 		p.Table.SetFixed(1, 0)
 		p.Table.SetSelectable(true, false) // row-level selection
@@ -140,8 +141,11 @@ func (p *Panel) UpdateTitle() {
 	p.Box.SetTitleColor(theme.ColorHeaderFg)
 
 	p.Box.Clear()
-	if e := p.CurrentEntry(); e != nil && e.IsLink && e.LinkTo != "" {
+	e := p.CurrentEntry()
+	if e != nil && e.IsLink && e.LinkTo != "" {
 		p.Box.AddText("@ → "+e.LinkTo, false, tview.AlignCenter, theme.ColorSymlink)
+	} else if p.Mode == ModeBrief && e != nil && e.Name != ".." {
+		p.Box.AddText(FormatEntryInfo(e), false, tview.AlignCenter, theme.ColorHeaderFg)
 	} else {
 		summary := FormatSummary(p.Entries, p.Selection)
 		p.Box.AddText(summary, false, tview.AlignCenter, theme.ColorHeaderFg)
@@ -333,10 +337,31 @@ func (p *Panel) Refresh() {
 	p.UpdateTitle()
 }
 
+// calcBriefRows calculates the number of rows for Brief mode layout,
+// ensuring a minimum of 3 columns when there are enough entries.
+func (p *Panel) calcBriefRows() int {
+	_, _, _, h := p.Table.GetInnerRect()
+	if h <= 0 {
+		h = 20
+	}
+
+	rows := h
+	cols := (len(p.Entries) + rows - 1) / rows
+	if cols < 1 {
+		cols = 1
+	}
+	// Minimum 3 columns (like original VC) when enough entries
+	if cols < 3 && len(p.Entries) > rows {
+		cols = 3
+		rows = (len(p.Entries) + cols - 1) / cols
+	}
+	return rows
+}
+
 // HandleSelectionChanged is called when the table selection changes.
 func (p *Panel) HandleSelectionChanged(row, col int) {
 	if p.Mode == ModeBrief {
-		_, _, _, h := p.Table.GetInnerRect()
+		h := p.BriefRows
 		if h <= 0 {
 			h = 20
 		}

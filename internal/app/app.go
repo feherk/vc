@@ -191,6 +191,12 @@ func (a *App) Run() error {
 	a.activePanel = saved
 	a.TviewApp.SetFocus(a.activeTable())
 	a.updatePanelStates()
+	// Re-render panels after first draw when actual dimensions are available
+	// (GetInnerRect returns 0 before first draw, Brief mode needs real height)
+	go a.TviewApp.QueueUpdateDraw(func() {
+		a.LeftPanel.Render()
+		a.RightPanel.Render()
+	})
 	return a.TviewApp.Run()
 }
 

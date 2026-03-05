@@ -241,6 +241,14 @@ func formatBytes(b int64) string {
 	}
 }
 
+// FormatEntryInfo formats a single entry's details for the Brief mode footer.
+func FormatEntryInfo(e *model.FileEntry) string {
+	size := formatSize(*e)
+	date := e.ModTime.Format("02.01.06")
+	timeStr := e.ModTime.Format("15:04")
+	return fmt.Sprintf("%s  %s  %s %s", e.Name, size, date, timeStr)
+}
+
 // FormatTime formats a time for display.
 func FormatTime(t time.Time) string {
 	return t.Format("02.01.2006 15:04")
