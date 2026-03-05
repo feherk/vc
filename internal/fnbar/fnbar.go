@@ -18,7 +18,7 @@ type FnBar struct {
 var fnLabels = [12]string{
 	"Conn", "Archiv", "View", "Edit", "Copy",
 	"Move", "MkDir", "Del", "Menu", "Quit",
-	"Select", "CmdLn",
+	"", "CmdLn",
 }
 
 func New() *FnBar {
