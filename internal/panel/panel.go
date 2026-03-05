@@ -337,25 +337,14 @@ func (p *Panel) Refresh() {
 	p.UpdateTitle()
 }
 
-// calcBriefRows calculates the number of rows for Brief mode layout,
-// ensuring a minimum of 3 columns when there are enough entries.
+// calcBriefRows returns the number of rows for Brief mode layout.
+// Uses the full panel height so entries fill the available space.
 func (p *Panel) calcBriefRows() int {
 	_, _, _, h := p.Table.GetInnerRect()
 	if h <= 0 {
 		h = 20
 	}
-
-	rows := h
-	cols := (len(p.Entries) + rows - 1) / rows
-	if cols < 1 {
-		cols = 1
-	}
-	// Minimum 3 columns (like original VC) when enough entries
-	if cols < 3 && len(p.Entries) > rows {
-		cols = 3
-		rows = (len(p.Entries) + cols - 1) / cols
-	}
-	return rows
+	return h
 }
 
 // HandleSelectionChanged is called when the table selection changes.
