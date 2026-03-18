@@ -16,9 +16,9 @@ type FnBar struct {
 }
 
 var fnLabels = [12]string{
-	"Conn", "Archiv", "View", "Edit", "Copy",
+	"Help", "Archiv", "View", "Edit", "Copy",
 	"Move", "MkDir", "Del", "Menu", "Quit",
-	"", "CmdLn",
+	"", "",
 }
 
 func New() *FnBar {
@@ -31,9 +31,9 @@ func (f *FnBar) Draw(screen tcell.Screen) {
 	f.Box.DrawForSubclass(screen, f)
 	x, y, width, _ := f.GetInnerRect()
 
-	slotWidth := width / 12
+	slotWidth := width / 10
 
-	for i := 0; i < 12; i++ {
+	for i := 0; i < 10; i++ {
 		sx := x + i*slotWidth
 
 		// Draw key number

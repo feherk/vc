@@ -3,19 +3,19 @@ package menu
 // BuildMenuItems returns the dropdown items for each top-level menu.
 // Actions are set by the App after construction.
 type MenuDefs struct {
-	OnBriefMode   func()
-	OnFullMode    func()
-	OnSortName    func()
-	OnSortExt     func()
-	OnSortSize    func()
-	OnSortTime    func()
-	OnCopy        func()
-	OnMove        func()
-	OnMkDir       func()
-	OnDelete      func()
-	OnQuit        func()
-	OnSwapPanels  func()
-	OnRefresh     func()
+	OnBriefMode    func()
+	OnFullMode     func()
+	OnSortName     func()
+	OnSortExt      func()
+	OnSortSize     func()
+	OnSortTime     func()
+	OnCopy         func()
+	OnMove         func()
+	OnMkDir        func()
+	OnDelete       func()
+	OnQuit         func()
+	OnSwapPanels   func()
+	OnRefresh      func()
 	OnViewFile     func()
 	OnEditFile     func()
 	OnExportConfig func()
@@ -24,6 +24,8 @@ type MenuDefs struct {
 	OnCheckUpdate  func()
 	OnSymlink      func()
 	OnChmod        func()
+	OnConnect      func()
+	OnDisconnect   func()
 }
 
 func LeftMenuItems(defs *MenuDefs) []MenuItem {
@@ -35,6 +37,9 @@ func LeftMenuItems(defs *MenuDefs) []MenuItem {
 		{Label: "Sort by Ext", Key: "", Action: defs.OnSortExt, HotKey: 'E'},
 		{Label: "Sort by Size", Key: "", Action: defs.OnSortSize, HotKey: 'S'},
 		{Label: "Sort by Time", Key: "", Action: defs.OnSortTime, HotKey: 'T'},
+		{IsSep: true},
+		{Label: "Connect", Key: "", Action: defs.OnConnect, HotKey: 'O'},
+		{Label: "Disconnect", Key: "", Action: defs.OnDisconnect, HotKey: 'D'},
 	}
 }
 

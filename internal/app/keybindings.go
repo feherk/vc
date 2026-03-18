@@ -25,7 +25,7 @@ func (a *App) SetupKeyBindings() {
 
 		switch event.Key() {
 		case tcell.KeyF1:
-			a.ShowServerDialog()
+			a.ShowHelpDialog()
 			return nil
 
 		case tcell.KeyF10:
@@ -35,7 +35,6 @@ func (a *App) SetupKeyBindings() {
 
 		case tcell.KeyTab:
 			a.switchPanel()
-			a.CmdLine.SetPath(a.GetActivePanel().Path)
 			return nil
 
 		case tcell.KeyF2:
@@ -67,15 +66,12 @@ func (a *App) SetupKeyBindings() {
 			return nil
 
 		case tcell.KeyF9:
-			a.ActivateMenu()
-			return nil
-
-		case tcell.KeyF12:
-			if !a.CmdLineFocused {
-				a.CmdLineFocused = true
-				a.CmdLine.SetText("")
-				a.TviewApp.SetFocus(a.CmdLine)
+			if a.activePanel == 1 {
+				a.MenuBar.Selected = 3 // Right
+			} else {
+				a.MenuBar.Selected = 0 // Left
 			}
+			a.ActivateMenu()
 			return nil
 
 		case tcell.KeyCtrlR:
@@ -88,14 +84,6 @@ func (a *App) SetupKeyBindings() {
 			return nil
 
 		case tcell.KeyBackspace, tcell.KeyBackspace2:
-			if a.CmdLineFocused {
-				if a.CmdLine.GetText() == "" {
-					a.CmdLineFocused = false
-					a.focusActiveTable()
-					return nil
-				}
-				return event
-			}
 			p := a.GetActivePanel()
 			if p.SearchBuf != "" {
 				runes := []rune(p.SearchBuf)
@@ -109,25 +97,9 @@ func (a *App) SetupKeyBindings() {
 			if atRoot := p.GoParent(); atRoot && !p.IsRemote() {
 				a.ShowDriveSelector()
 			}
-			a.CmdLine.SetPath(p.Path)
 			return nil
 
 		case tcell.KeyEnter:
-			if event.Modifiers()&tcell.ModCtrl != 0 {
-				e := a.GetActivePanel().CurrentEntry()
-				if e != nil && e.Name != ".." {
-					if !a.CmdLineFocused {
-						a.CmdLineFocused = true
-						a.CmdLine.SetText("")
-						a.TviewApp.SetFocus(a.CmdLine)
-					}
-					a.CmdLine.SetText(a.CmdLine.GetText() + e.Name)
-				}
-				return nil
-			}
-			if a.CmdLineFocused {
-				return event
-			}
 			p := a.GetActivePanel()
 			p.SearchBuf = ""
 			entry, atRoot := p.Enter()
@@ -143,19 +115,13 @@ func (a *App) SetupKeyBindings() {
 					})
 				}()
 			}
-			a.CmdLine.SetPath(p.Path)
 			return nil
 
 		case tcell.KeyCtrlN:
-			if !a.CmdLineFocused {
-				a.ShowQuickPathsDialog()
-				return nil
-			}
+			a.ShowQuickPathsDialog()
+			return nil
 
 		case tcell.KeyRight:
-			if a.CmdLineFocused {
-				return event
-			}
 			p := a.GetActivePanel()
 			if p.Mode == panel.ModeBrief {
 				h := p.BriefRows
@@ -174,9 +140,6 @@ func (a *App) SetupKeyBindings() {
 			return event
 
 		case tcell.KeyEscape:
-			if a.CmdLineFocused {
-				return event
-			}
 			p := a.GetActivePanel()
 			if p.SearchBuf != "" {
 				p.SearchBuf = ""
@@ -187,14 +150,12 @@ func (a *App) SetupKeyBindings() {
 			}
 
 		case tcell.KeyRune:
-			if event.Rune() == ' ' && !a.CmdLineFocused {
+			if event.Rune() == ' ' {
 				a.CalcDirSize()
 				return nil
 			}
-			if !a.CmdLineFocused {
-				a.InlineSearch(event.Rune())
-				return nil
-			}
+			a.InlineSearch(event.Rune())
+			return nil
 		}
 
 		return event
@@ -251,7 +212,6 @@ func (a *App) SetupKeyBindings() {
 				})
 			}()
 		}
-		a.CmdLine.SetPath(p.Path)
 		// Force redraw — Table doesn't consume MouseLeftDoubleClick
 		// so tview skips the draw call after fireMouseActions.
 		go a.TviewApp.QueueUpdateDraw(func() {})
@@ -323,7 +283,6 @@ func (a *App) SetupKeyBindings() {
 
 // switchPanel toggles the active panel.
 func (a *App) switchPanel() {
-	a.CmdLineFocused = false
 	a.GetActivePanel().SearchBuf = ""
 	if a.activePanel == 0 {
 		a.activePanel = 1

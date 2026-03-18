@@ -30,10 +30,6 @@ var (
 	ColorFnLabelFg = tcell.ColorBlack
 	ColorFnLabelBg = tcell.NewRGBColor(0, 170, 170)
 
-	// Command line
-	ColorCmdLineFg = tcell.ColorWhite
-	ColorCmdLineBg = tcell.ColorBlack
-
 	// Panel header/footer
 	ColorHeaderFg = tcell.ColorWhite
 	ColorHeaderBg = ColorPanelBg

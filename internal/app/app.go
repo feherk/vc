@@ -26,7 +26,6 @@ import (
 	"github.com/rivo/tview"
 	"golang.org/x/crypto/argon2"
 
-	"github.com/feherkaroly/vc/internal/cmdline"
 	"github.com/feherkaroly/vc/internal/config"
 	"github.com/feherkaroly/vc/internal/dialog"
 	"github.com/feherkaroly/vc/internal/fileops"
@@ -50,13 +49,11 @@ type App struct {
 
 	MenuBar *menu.MenuBar
 	FnBar   *fnbar.FnBar
-	CmdLine *cmdline.CmdLine
 	ConnMgr *vfs.ConnMgr
 
 	activePanel    int // 0 = left, 1 = right
 	MenuActive     bool
 	ModalOpen      bool
-	CmdLineFocused bool
 
 	lastClickTime  time.Time
 	lastClickRow   int
@@ -89,18 +86,6 @@ func New(leftPath, rightPath string) *App {
 	a.LeftPanel.Refresh()
 	a.RightPanel.Refresh()
 
-	a.CmdLine = cmdline.New()
-	a.CmdLine.SetPath(a.LeftPanel.Path)
-	a.CmdLine.SetExecuteFunc(func(cmd string) {
-		a.ExecuteCommand(cmd)
-	})
-	a.CmdLine.SetFocusFunc(func(focused bool) {
-		a.CmdLineFocused = focused
-		if !focused {
-			a.TviewApp.SetFocus(a.activeTable())
-		}
-	})
-
 	a.buildLayout()
 
 	a.activePanel = cfg.ActivePanel
@@ -130,7 +115,7 @@ func New(leftPath, rightPath string) *App {
 		}
 		switch fn {
 		case 1:
-			a.ShowServerDialog()
+			a.ShowHelpDialog()
 		case 2:
 			a.CompressFiles()
 		case 3:
@@ -146,18 +131,15 @@ func New(leftPath, rightPath string) *App {
 		case 8:
 			a.DeleteFiles()
 		case 9:
+			if a.activePanel == 1 {
+				a.MenuBar.Selected = 3
+			} else {
+				a.MenuBar.Selected = 0
+			}
 			a.ActivateMenu()
 		case 10:
 			a.SaveConfig()
 			a.TviewApp.Stop()
-		case 11:
-			a.GetActivePanel().ToggleSelection()
-		case 12:
-			if !a.CmdLineFocused {
-				a.CmdLineFocused = true
-				a.CmdLine.SetText("")
-				a.TviewApp.SetFocus(a.CmdLine)
-			}
 		}
 		go a.TviewApp.QueueUpdateDraw(func() {})
 	}
@@ -176,7 +158,6 @@ func (a *App) buildLayout() {
 	mainFlex := tview.NewFlex().SetDirection(tview.FlexRow).
 		AddItem(a.MenuBar, 1, 0, false).
 		AddItem(panelFlex, 0, 1, true).
-		AddItem(a.CmdLine, 1, 0, false).
 		AddItem(a.FnBar, 1, 0, false)
 
 	a.Pages = tview.NewPages().
@@ -1131,69 +1112,6 @@ func (a *App) resetSearchTimer(p *panel.Panel) {
 	})
 }
 
-// ExecuteCommand runs a shell command.
-func (a *App) ExecuteCommand(cmd string) {
-	if cmd == "" {
-		return
-	}
-
-	p := a.GetActivePanel()
-
-	// Handle "cd" command: navigate the active panel (works on remote panels too)
-	trimmed := strings.TrimSpace(cmd)
-	if trimmed == "cd" || strings.HasPrefix(trimmed, "cd ") {
-		dir := strings.TrimSpace(strings.TrimPrefix(trimmed, "cd"))
-		if p.IsRemote() {
-			if dir == "" || dir == "/" {
-				dir = "/"
-			} else if dir == ".." {
-				dir = p.FS.Dir(p.Path)
-			} else if !strings.HasPrefix(dir, "/") {
-				dir = p.FS.Join(p.Path, dir)
-			}
-		} else {
-			if dir == "" || dir == "~" {
-				dir, _ = os.UserHomeDir()
-			} else if strings.HasPrefix(dir, "~/") {
-				home, _ := os.UserHomeDir()
-				dir = filepath.Join(home, dir[2:])
-			} else if !filepath.IsAbs(dir) {
-				dir = filepath.Join(p.Path, dir)
-			}
-			dir = filepath.Clean(dir)
-		}
-		p.NavigateTo(dir, "")
-		a.CmdLine.SetPath(p.Path)
-		return
-	}
-
-	if p.IsRemote() {
-		a.showRemoteError("Execute command")
-		return
-	}
-
-	a.TviewApp.Suspend(func() {
-		c := exec.Command("sh", "-c", cmd)
-		c.Dir = p.Path
-		c.Stdin = os.Stdin
-		c.Stdout = os.Stdout
-		c.Stderr = os.Stderr
-		c.Run()
-
-		os.Stdout.WriteString("\nPress Enter to continue...")
-		buf := make([]byte, 1)
-		for {
-			os.Stdin.Read(buf)
-			if buf[0] == '\n' || buf[0] == '\r' {
-				break
-			}
-		}
-	})
-
-	p.Refresh()
-	a.GetInactivePanel().Refresh()
-	a.CmdLine.SetPath(p.Path)
-}
 
 // ActivateMenu activates the top menu bar.
 func (a *App) ActivateMenu() {
@@ -1239,6 +1157,8 @@ func (a *App) showMenuDropdown() {
 			OnCheckUpdate:  func() { a.DeactivateMenu(); a.CheckForUpdates() },
 			OnSymlink:      func() { a.DeactivateMenu(); a.CreateSymlink() },
 			OnChmod:        func() { a.DeactivateMenu(); a.ShowChmodDialog() },
+			OnConnect:      func() { a.DeactivateMenu(); a.ShowServerDialogForPanel(p) },
+			OnDisconnect:   func() { a.DeactivateMenu(); a.disconnectPanel(p) },
 		}
 	}
 
@@ -1452,7 +1372,7 @@ func (a *App) ImportConfig() {
 		a.saveConfigWithServers(&config.Config{Servers: merged})
 		a.LeftPanel.Refresh()
 		a.RightPanel.Refresh()
-		a.CmdLine.SetPath(a.GetActivePanel().Path)
+	
 	}, func() {
 		a.closeDialog("input")
 	})
@@ -1468,7 +1388,86 @@ func (a *App) swapPanels() {
 	a.RightPanel.Refresh()
 }
 
-// ShowServerDialog opens the F1 server connection dialog.
+// ShowHelpDialog displays the F1 help dialog with keyboard shortcuts.
+func (a *App) ShowHelpDialog() {
+	dialog.ShowHelp(a.Pages, func() {
+		a.closeDialog("help_dialog")
+	})
+	a.ModalOpen = true
+	a.TviewApp.SetFocus(a.Pages)
+}
+
+// ShowServerDialogForPanel opens the server connection dialog targeting a specific panel.
+func (a *App) ShowServerDialogForPanel(targetPanel *panel.Panel) {
+	cfg := config.Load()
+
+	var showDialog func()
+	showDialog = func() {
+		dialog.ShowServerDialog(a.Pages, cfg.Servers, dialog.ServerDialogCallbacks{
+			OnConnect: func(srv config.ServerConfig) {
+				a.closeDialog("server_dialog")
+				a.connectPanel(targetPanel, srv)
+			},
+			OnDisconnect: func(name string) {
+				a.closeDialog("server_dialog")
+				if targetPanel.ConnectedServer == name {
+					a.disconnectPanel(targetPanel)
+				}
+			},
+			OnAdd: func() {
+				a.Pages.RemovePage("server_dialog")
+				dialog.ShowServerEdit(a.Pages, "Add Server", config.ServerConfig{Protocol: "sftp"}, func(srv config.ServerConfig) {
+					a.Pages.RemovePage("server_edit")
+					cfg.Servers = append(cfg.Servers, srv)
+					a.saveConfigWithServers(cfg)
+					showDialog()
+				}, func() {
+					a.Pages.RemovePage("server_edit")
+					a.ModalOpen = false
+					showDialog()
+				})
+			},
+			OnEdit: func(idx int, srv config.ServerConfig) {
+				a.Pages.RemovePage("server_dialog")
+				dialog.ShowServerEdit(a.Pages, "Edit Server", srv, func(updated config.ServerConfig) {
+					a.Pages.RemovePage("server_edit")
+					cfg.Servers[idx] = updated
+					a.saveConfigWithServers(cfg)
+					showDialog()
+				}, func() {
+					a.Pages.RemovePage("server_edit")
+					a.ModalOpen = false
+					showDialog()
+				})
+			},
+			OnDelete: func(idx int) {
+				a.closeDialog("server_dialog")
+				name := cfg.Servers[idx].Name
+				dialog.ShowConfirm(a.Pages, "Delete Server", "Delete server '"+name+"'?", func(yes bool) {
+					a.closeDialog("confirm")
+					if yes {
+						cfg.Servers = append(cfg.Servers[:idx], cfg.Servers[idx+1:]...)
+						a.saveConfigWithServers(cfg)
+					}
+					showDialog()
+				})
+				a.ModalOpen = true
+				a.TviewApp.SetFocus(a.Pages)
+			},
+			OnClose: func() {
+				a.closeDialog("server_dialog")
+			},
+			IsConnected: func(name string) bool {
+				return a.ConnMgr.IsConnected(name)
+			},
+		})
+		a.ModalOpen = true
+		a.TviewApp.SetFocus(a.Pages)
+	}
+	showDialog()
+}
+
+// ShowServerDialog opens the server connection dialog for the active panel.
 func (a *App) ShowServerDialog() {
 	cfg := config.Load()
 
@@ -1563,7 +1562,7 @@ func (a *App) connectPanel(p *panel.Panel, srv config.ServerConfig) {
 			p.ConnectedServer = srv.Name
 			p.Path = "/"
 			p.Refresh()
-			a.CmdLine.SetPath(a.GetActivePanel().Path)
+		
 		})
 	}()
 }
@@ -1586,7 +1585,7 @@ func (a *App) disconnectPanel(p *panel.Panel) {
 	}
 	p.Path = home
 	p.Refresh()
-	a.CmdLine.SetPath(a.GetActivePanel().Path)
+
 
 	if !otherUsesSame {
 		a.ConnMgr.Disconnect(name)
@@ -1619,7 +1618,6 @@ func (a *App) ShowDriveSelector() {
 	dialog.ShowDriveDialog(a.Pages, drives, func(drive string) {
 		a.closeDialog("drive_dialog")
 		p.NavigateTo(drive, "")
-		a.CmdLine.SetPath(p.Path)
 	}, func() {
 		a.closeDialog("drive_dialog")
 	})
@@ -1695,7 +1693,6 @@ func (a *App) navigateToQuickPath(slot int, paths map[string]string) {
 	}
 	p := a.GetActivePanel()
 	p.NavigateTo(path, "")
-	a.CmdLine.SetPath(p.Path)
 }
 
 func (a *App) showRemoteError(operation string) {
