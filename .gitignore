@@ -1,3 +1,4 @@
 dist/
+build/
 vc
 .DS_Store

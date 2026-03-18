@@ -9,7 +9,7 @@ import (
 	"github.com/feherkaroly/vc/internal/config"
 )
 
-var Version = "2.8.5"
+var Version = "3.0.0"
 
 func main() {
 	showVersion := flag.Bool("version", false, "Show version")
@@ -22,31 +22,41 @@ func main() {
 		return
 	}
 
+	// Resolve CWD
+	wd, _ := os.Getwd()
+	if wd == "" {
+		wd = "."
+	}
+
 	// Use saved paths if no explicit arguments given
 	if *leftDir == "." && *rightDir == "." {
 		cfg := config.Load()
-		if cfg.LeftPanel.Path != "" {
-			if info, err := os.Stat(cfg.LeftPanel.Path); err == nil && info.IsDir() {
-				*leftDir = cfg.LeftPanel.Path
+		// Active panel gets CWD, inactive panel gets saved path
+		if cfg.ActivePanel == 0 {
+			// Left is active → left=CWD, right=saved
+			*leftDir = wd
+			if cfg.RightPanel.Path != "" {
+				if info, err := os.Stat(cfg.RightPanel.Path); err == nil && info.IsDir() {
+					*rightDir = cfg.RightPanel.Path
+				}
 			}
-		}
-		if cfg.RightPanel.Path != "" {
-			if info, err := os.Stat(cfg.RightPanel.Path); err == nil && info.IsDir() {
-				*rightDir = cfg.RightPanel.Path
+		} else {
+			// Right is active → right=CWD, left=saved
+			*rightDir = wd
+			if cfg.LeftPanel.Path != "" {
+				if info, err := os.Stat(cfg.LeftPanel.Path); err == nil && info.IsDir() {
+					*leftDir = cfg.LeftPanel.Path
+				}
 			}
 		}
 	}
 
-	// Resolve relative paths
+	// Resolve any remaining relative paths
 	if *leftDir == "." {
-		if wd, err := os.Getwd(); err == nil {
-			*leftDir = wd
-		}
+		*leftDir = wd
 	}
 	if *rightDir == "." {
-		if wd, err := os.Getwd(); err == nil {
-			*rightDir = wd
-		}
+		*rightDir = wd
 	}
 
 	application.Version = Version
