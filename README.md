@@ -18,7 +18,6 @@ Built with Go, using [tview](https://github.com/rivo/tview) and [tcell](https://
 - Sorting by name, extension, size, or time
 - SFTP/FTPS remote filesystem support (F1)
 - Windows drive switching (Backspace at drive root)
-- Shell command execution from built-in command line
 - Symlink display with `@` prefix and link target in footer
 - File attributes dialog: chmod/chown with searchable owner/group picker
 - Default ACL support for directories on Linux (`sudo apt install acl`)
@@ -80,7 +79,6 @@ go install github.com/feherkaroly/vc@latest
 | Type letters | Inline search — jump to matching file/directory |
 | Escape | Cancel inline search |
 | Ctrl+R | Refresh both panels |
-| Ctrl+Enter | Insert current filename into command line |
 | F1 | Server connections (SFTP/FTPS) |
 | F2 | Zip selected files |
 | F3 | View file / View zip contents |
@@ -91,7 +89,6 @@ go install github.com/feherkaroly/vc@latest
 | F8 | Delete |
 | F9 | Menu |
 | F10 | Quit |
-| F12 | Focus command line |
 
 ## License
 
