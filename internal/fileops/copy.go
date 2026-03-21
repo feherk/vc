@@ -9,19 +9,21 @@ import (
 )
 
 // Copy recursively copies src to dst, supporting cross-filesystem operations.
-func Copy(ctx context.Context, srcFS vfs.FileSystem, src string, dstFS vfs.FileSystem, dst string, onProgress func(Progress)) error {
+// When preserveMode is true, the source file/directory permissions are preserved.
+// When false, default permissions are used (0666 for files, 0777 for dirs, modified by umask).
+func Copy(ctx context.Context, srcFS vfs.FileSystem, src string, dstFS vfs.FileSystem, dst string, preserveMode bool, onProgress func(Progress)) error {
 	srcInfo, err := srcFS.Lstat(src)
 	if err != nil {
 		return fmt.Errorf("stat %s: %w", src, err)
 	}
 
 	if srcInfo.IsDir {
-		return copyDir(ctx, srcFS, src, dstFS, dst, onProgress)
+		return copyDir(ctx, srcFS, src, dstFS, dst, preserveMode, onProgress)
 	}
-	return copyFile(ctx, srcFS, src, dstFS, dst, srcInfo, onProgress)
+	return copyFile(ctx, srcFS, src, dstFS, dst, srcInfo, preserveMode, onProgress)
 }
 
-func copyFile(ctx context.Context, srcFS vfs.FileSystem, src string, dstFS vfs.FileSystem, dst string, srcInfo vfs.FileInfo, onProgress func(Progress)) error {
+func copyFile(ctx context.Context, srcFS vfs.FileSystem, src string, dstFS vfs.FileSystem, dst string, srcInfo vfs.FileInfo, preserveMode bool, onProgress func(Progress)) error {
 	// Ensure destination directory exists
 	if err := dstFS.MkdirAll(dstFS.Dir(dst), 0755); err != nil {
 		return err
@@ -33,7 +35,11 @@ func copyFile(ctx context.Context, srcFS vfs.FileSystem, src string, dstFS vfs.F
 	}
 	defer sf.Close()
 
-	df, err := dstFS.Create(dst, srcInfo.Mode)
+	mode := srcInfo.Mode
+	if !preserveMode {
+		mode = 0666
+	}
+	df, err := dstFS.Create(dst, mode)
 	if err != nil {
 		return err
 	}
@@ -79,13 +85,17 @@ func copyFile(ctx context.Context, srcFS vfs.FileSystem, src string, dstFS vfs.F
 	return nil
 }
 
-func copyDir(ctx context.Context, srcFS vfs.FileSystem, src string, dstFS vfs.FileSystem, dst string, onProgress func(Progress)) error {
+func copyDir(ctx context.Context, srcFS vfs.FileSystem, src string, dstFS vfs.FileSystem, dst string, preserveMode bool, onProgress func(Progress)) error {
 	srcInfo, err := srcFS.Stat(src)
 	if err != nil {
 		return err
 	}
 
-	if err := dstFS.MkdirAll(dst, srcInfo.Mode); err != nil {
+	dirMode := srcInfo.Mode
+	if !preserveMode {
+		dirMode = 0777
+	}
+	if err := dstFS.MkdirAll(dst, dirMode); err != nil {
 		return err
 	}
 
@@ -102,7 +112,7 @@ func copyDir(ctx context.Context, srcFS vfs.FileSystem, src string, dstFS vfs.Fi
 		srcPath := srcFS.Join(src, entry.Name)
 		dstPath := dstFS.Join(dst, entry.Name)
 
-		if err := Copy(ctx, srcFS, srcPath, dstFS, dstPath, onProgress); err != nil {
+		if err := Copy(ctx, srcFS, srcPath, dstFS, dstPath, preserveMode, onProgress); err != nil {
 			return err
 		}
 	}

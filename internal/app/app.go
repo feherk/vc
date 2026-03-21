@@ -59,8 +59,9 @@ type App struct {
 	lastClickRow   int
 	lastClickTable *tview.Table
 
-	activeDropdown *menu.Dropdown
-	searchTimer    *time.Timer
+	activeDropdown   *menu.Dropdown
+	searchTimer      *time.Timer
+	CopyPreserveMode bool
 }
 
 var Version string
@@ -83,6 +84,7 @@ func New(leftPath, rightPath string) *App {
 	a.LeftPanel.SortMode = panel.SortMode(cfg.LeftPanel.SortMode)
 	a.RightPanel.Mode = panel.DisplayMode(cfg.RightPanel.Mode)
 	a.RightPanel.SortMode = panel.SortMode(cfg.RightPanel.SortMode)
+	a.CopyPreserveMode = cfg.CopyPreserveMode
 	a.LeftPanel.Refresh()
 	a.RightPanel.Refresh()
 
@@ -752,7 +754,7 @@ func (a *App) CopyFiles() {
 			func(entry model.FileEntry) error {
 				srcPath := srcFS.Join(src.Path, entry.Name)
 				dstPath := dstFS.Join(target, entry.Name)
-				return fileops.Copy(context.Background(), srcFS, srcPath, dstFS, dstPath, nil)
+				return fileops.Copy(context.Background(), srcFS, srcPath, dstFS, dstPath, a.CopyPreserveMode, nil)
 			})
 	}, func() {
 		a.closeDialog("input")
@@ -1171,6 +1173,15 @@ func (a *App) showMenuDropdown() {
 	case 2:
 		items = menu.CommandsMenuItems(panelDefs(a.GetActivePanel()))
 	case 3:
+		defs := panelDefs(a.GetActivePanel())
+		defs.CopyPreserveModeOn = a.CopyPreserveMode
+		defs.OnTogglePreserve = func() {
+			a.CopyPreserveMode = !a.CopyPreserveMode
+			a.SaveConfig()
+			a.DeactivateMenu()
+		}
+		items = menu.OptionsMenuItems(defs)
+	case 4:
 		items = menu.RightMenuItems(panelDefs(a.RightPanel))
 	}
 
@@ -1604,6 +1615,7 @@ func (a *App) saveConfigWithServers(cfg *config.Config) {
 	cfg.LeftPanel = config.PanelConfig{Mode: int(a.LeftPanel.Mode), SortMode: int(a.LeftPanel.SortMode), Path: leftPath}
 	cfg.RightPanel = config.PanelConfig{Mode: int(a.RightPanel.Mode), SortMode: int(a.RightPanel.SortMode), Path: rightPath}
 	cfg.ActivePanel = a.activePanel
+	cfg.CopyPreserveMode = a.CopyPreserveMode
 	config.Save(cfg)
 }
 
