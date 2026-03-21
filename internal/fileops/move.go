@@ -24,7 +24,7 @@ func Move(ctx context.Context, srcFS vfs.FileSystem, src string, dstFS vfs.FileS
 	}
 
 	// Fallback: copy then delete
-	if err := Copy(ctx, srcFS, src, dstFS, dst, onProgress); err != nil {
+	if err := Copy(ctx, srcFS, src, dstFS, dst, true, onProgress); err != nil {
 		// On cancel, clean up partial copy but keep source
 		if ctx.Err() != nil {
 			dstFS.RemoveAll(dst)

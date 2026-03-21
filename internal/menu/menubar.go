@@ -22,8 +22,8 @@ type MenuBar struct {
 func NewMenuBar() *MenuBar {
 	m := &MenuBar{
 		Box:     tview.NewBox().SetBackgroundColor(theme.ColorMenuBarBg),
-		Items:   []string{" Left ", " File ", " Commands ", " Right "},
-		HotKeys: []rune{'L', 'F', 'C', 'R'},
+		Items:   []string{" Left ", " File ", " Commands ", " Options ", " Right "},
+		HotKeys: []rune{'L', 'F', 'C', 'O', 'R'},
 	}
 	return m
 }

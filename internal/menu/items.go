@@ -24,8 +24,10 @@ type MenuDefs struct {
 	OnCheckUpdate  func()
 	OnSymlink      func()
 	OnChmod        func()
-	OnConnect      func()
-	OnDisconnect   func()
+	OnConnect           func()
+	OnDisconnect        func()
+	OnTogglePreserve    func()
+	CopyPreserveModeOn  bool
 }
 
 func LeftMenuItems(defs *MenuDefs) []MenuItem {
@@ -73,7 +75,13 @@ func CommandsMenuItems(defs *MenuDefs) []MenuItem {
 }
 
 func OptionsMenuItems(defs *MenuDefs) []MenuItem {
-	return []MenuItem{}
+	preserveLabel := "[ ] Copy preserve mode"
+	if defs.CopyPreserveModeOn {
+		preserveLabel = "[x] Copy preserve mode"
+	}
+	return []MenuItem{
+		{Label: preserveLabel, Key: "", Action: defs.OnTogglePreserve, HotKey: 'P'},
+	}
 }
 
 func RightMenuItems(defs *MenuDefs) []MenuItem {
