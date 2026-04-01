@@ -84,9 +84,9 @@ func (f *FnBar) MouseHandler() func(action tview.MouseAction, event *tcell.Event
 		if mx < x || mx >= x+width {
 			return false, nil
 		}
-		slotWidth := width / 12
+		slotWidth := width / 10
 		slot := (mx - x) / slotWidth
-		if slot < 0 || slot > 11 {
+		if slot < 0 || slot > 9 {
 			return false, nil
 		}
 		if f.OnClick != nil {

@@ -33,26 +33,29 @@ type ChmodResult struct {
 	Owner   string
 	Group   string
 	ACL     [3][3]bool
+	Recurse bool
 	Changed bool
 }
 
 // Sections:
 //
-//	0 = Tulaj perms [rwx]
-//	1 = Csoport perms [rwx]
-//	2 = Egyeb perms [rwx]
+//	0 = Owner perms [rwx]
+//	1 = Group perms [rwx]
+//	2 = Other perms [rwx]
 //	3 = Special bits (SetUID, SetGID, Sticky)
-//	4 = Owner input
-//	5 = Group input
-//	6 = ACL (if available, one section with 9 positions)
+//	4 = Recurse checkbox (directories only)
+//	5 = Owner input
+//	6 = Group input
+//	7 = ACL (if available, one section with 9 positions)
 //	last = Buttons
 const (
 	secPermOwner  = 0
 	secPermGroup  = 1
 	secPermOther  = 2
 	secSpecial    = 3
-	secOwnerInput = 4
-	secGroupInput = 5
+	secRecurse    = 4
+	secOwnerInput = 5
+	secGroupInput = 6
 )
 
 type chmodBox struct {
@@ -63,13 +66,14 @@ type chmodBox struct {
 
 	perms    [3][3]bool
 	special  [3]bool // [0]=SetUID, [1]=SetGID, [2]=Sticky
+	recurse  bool
 	ownerBuf string
 	groupBuf string
 	acl      [3][3]bool
 
 	focusSection int
 	focusCol     int
-	buttonIdx    int // 0=OK, 1=Megsem
+	buttonIdx    int // 0=OK, 1=Cancel
 
 	// List picker overlay
 	listActive   bool
@@ -163,17 +167,34 @@ func (b *chmodBox) octalString() string {
 	return fmt.Sprintf("%03o", b.buildMode().Perm())
 }
 
+func (b *chmodBox) showRecurse() bool {
+	return b.params.IsDir
+}
+
 func (b *chmodBox) showACL() bool {
 	return b.params.HasACL && b.params.IsDir && b.params.IsLocal
 }
 
-func (b *chmodBox) aclSection() int { return 6 }
+func (b *chmodBox) ownerSection() int {
+	if b.showRecurse() {
+		return secRecurse + 1
+	}
+	return secRecurse
+}
+
+func (b *chmodBox) groupSection() int {
+	return b.ownerSection() + 1
+}
+
+func (b *chmodBox) aclSection() int {
+	return b.groupSection() + 1
+}
 
 func (b *chmodBox) buttonsSection() int {
 	if b.showACL() {
-		return 7
+		return b.aclSection() + 1
 	}
-	return 6
+	return b.groupSection() + 1
 }
 
 func (b *chmodBox) maxSections() int {
@@ -187,6 +208,9 @@ func (b *chmodBox) Draw(screen tcell.Screen) {
 
 	boxW := 54
 	boxH := 11 // extra row for special bits
+	if b.showRecurse() {
+		boxH++
+	}
 	if b.showACL() {
 		boxH += 3
 	}
@@ -226,11 +250,11 @@ func (b *chmodBox) Draw(screen tcell.Screen) {
 
 	// Headers
 	row++
-	chmodDrawStr(screen, bx+3, row, "Tulaj", tcell.ColorYellow, bg)
-	chmodDrawStr(screen, bx+11, row, "Csoport", tcell.ColorYellow, bg)
-	chmodDrawStr(screen, bx+21, row, "Egyeb", tcell.ColorYellow, bg)
-	chmodDrawStr(screen, bx+30, row, "Tulaj", tcell.ColorYellow, bg)
-	chmodDrawStr(screen, bx+42, row, "Csoport", tcell.ColorYellow, bg)
+	chmodDrawStr(screen, bx+3, row, "Owner", tcell.ColorYellow, bg)
+	chmodDrawStr(screen, bx+11, row, "Group", tcell.ColorYellow, bg)
+	chmodDrawStr(screen, bx+21, row, "Other", tcell.ColorYellow, bg)
+	chmodDrawStr(screen, bx+30, row, "Owner", tcell.ColorYellow, bg)
+	chmodDrawStr(screen, bx+42, row, "Group", tcell.ColorYellow, bg)
 
 	// Perm bits + owner/group fields
 	row++
@@ -240,6 +264,12 @@ func (b *chmodBox) Draw(screen tcell.Screen) {
 	// Special bits
 	row++
 	b.drawSpecialBits(screen, bx+2, row, fg, bg)
+
+	// Recurse checkbox (directories only)
+	if b.showRecurse() {
+		row++
+		b.drawRecurse(screen, bx+2, row, fg, bg)
+	}
 
 	// Octal
 	row++
@@ -319,7 +349,7 @@ func (b *chmodBox) drawSpecialBits(screen tcell.Screen, x, y int, fg, bg tcell.C
 func (b *chmodBox) drawOwnerGroup(screen tcell.Screen, x, y int, fg, bg tcell.Color) {
 	// Owner
 	oFg, oBg := fg, theme.ColorPanelBg
-	if b.focusSection == secOwnerInput {
+	if b.focusSection == b.ownerSection() {
 		oFg, oBg = theme.ColorButtonFg, theme.ColorButtonBg
 	}
 	chmodDrawStr(screen, x, y, "[", fg, bg)
@@ -328,7 +358,7 @@ func (b *chmodBox) drawOwnerGroup(screen tcell.Screen, x, y int, fg, bg tcell.Co
 
 	// Group
 	gFg, gBg := fg, theme.ColorPanelBg
-	if b.focusSection == secGroupInput {
+	if b.focusSection == b.groupSection() {
 		gFg, gBg = theme.ColorButtonFg, theme.ColorButtonBg
 	}
 	chmodDrawStr(screen, x+13, y, "[", fg, bg)
@@ -336,8 +366,24 @@ func (b *chmodBox) drawOwnerGroup(screen tcell.Screen, x, y int, fg, bg tcell.Co
 	chmodDrawStr(screen, x+24, y, "]", fg, bg)
 }
 
+func (b *chmodBox) drawRecurse(screen tcell.Screen, x, y int, fg, bg tcell.Color) {
+	ch := ' '
+	if b.recurse {
+		ch = 'x'
+	}
+	chmodDrawStr(screen, x, y, "[", fg, bg)
+	chFg, chBg := fg, bg
+	if b.focusSection == secRecurse {
+		chFg = theme.ColorButtonFg
+		chBg = theme.ColorButtonBg
+	}
+	screen.SetContent(x+1, y, ch, nil,
+		tcell.StyleDefault.Foreground(chFg).Background(chBg))
+	chmodDrawStr(screen, x+2, y, "] Recurse", fg, bg)
+}
+
 func (b *chmodBox) drawACLBits(screen tcell.Screen, x, y int, fg, bg tcell.Color) {
-	labels := [3]string{"Tulaj", "Csoport", "Egyeb"}
+	labels := [3]string{"Owner", "Group", "Other"}
 	cx := x
 	for grp := 0; grp < 3; grp++ {
 		lbl := labels[grp] + " ["
@@ -366,7 +412,7 @@ func (b *chmodBox) drawACLBits(screen tcell.Screen, x, y int, fg, bg tcell.Color
 func (b *chmodBox) drawButtons(screen tcell.Screen, bx, y, boxW int, bg tcell.Color) {
 	btn := b.buttonsSection()
 	okLbl := " OK "
-	caLbl := " Megsem "
+	caLbl := " Cancel "
 
 	okFg, okBg := theme.ColorButtonFg, theme.ColorButtonBg
 	caFg, caBg := theme.ColorButtonFg, theme.ColorButtonBg
@@ -398,7 +444,7 @@ func (b *chmodBox) drawList(screen tcell.Screen, bx, by, boxW, boxH int) {
 	listH := visible + 2 // border
 	// Position: next to the owner/group field
 	lx := bx + 28
-	if b.listTarget == secGroupInput {
+	if b.listTarget == b.groupSection() {
 		lx = bx + 41
 	}
 	ly := by + 4 // below the field row
@@ -483,33 +529,31 @@ func (b *chmodBox) handleKey(event *tcell.EventKey) {
 	case tcell.KeyRight:
 		b.moveRight()
 	case tcell.KeyEnter:
-		switch b.focusSection {
-		case secOwnerInput:
-			b.openList(secOwnerInput)
-		case secGroupInput:
-			b.openList(secGroupInput)
-		default:
-			if b.focusSection == b.buttonsSection() {
-				if b.buttonIdx == 0 {
-					b.apply()
-				} else {
-					b.onCancel()
-				}
+		switch {
+		case b.focusSection == b.ownerSection():
+			b.openList(b.ownerSection())
+		case b.focusSection == b.groupSection():
+			b.openList(b.groupSection())
+		case b.focusSection == b.buttonsSection():
+			if b.buttonIdx == 0 {
+				b.apply()
+			} else {
+				b.onCancel()
 			}
 		}
 	case tcell.KeyBackspace, tcell.KeyBackspace2:
-		if b.focusSection == secOwnerInput && len(b.ownerBuf) > 0 {
+		if b.focusSection == b.ownerSection() && len(b.ownerBuf) > 0 {
 			b.ownerBuf = removeLastRune(b.ownerBuf)
-		} else if b.focusSection == secGroupInput && len(b.groupBuf) > 0 {
+		} else if b.focusSection == b.groupSection() && len(b.groupBuf) > 0 {
 			b.groupBuf = removeLastRune(b.groupBuf)
 		}
 	case tcell.KeyRune:
 		ch := event.Rune()
-		if b.focusSection == secOwnerInput {
+		if b.focusSection == b.ownerSection() {
 			if runeLen(b.ownerBuf) < 32 {
 				b.ownerBuf += string(ch)
 			}
-		} else if b.focusSection == secGroupInput {
+		} else if b.focusSection == b.groupSection() {
 			if runeLen(b.groupBuf) < 32 {
 				b.groupBuf += string(ch)
 			}
@@ -604,6 +648,8 @@ func (b *chmodBox) toggleCurrent() {
 		b.perms[b.focusSection][b.focusCol] = !b.perms[b.focusSection][b.focusCol]
 	case b.focusSection == secSpecial:
 		b.special[b.focusCol] = !b.special[b.focusCol]
+	case b.focusSection == secRecurse && b.showRecurse():
+		b.recurse = !b.recurse
 	case b.showACL() && b.focusSection == b.aclSection():
 		grp := b.focusCol / 3
 		bit := b.focusCol % 3
@@ -616,12 +662,14 @@ func (b *chmodBox) apply() {
 	changed := newMode != b.params.Mode ||
 		b.ownerBuf != b.params.Owner ||
 		b.groupBuf != b.params.Group ||
-		b.acl != b.params.ACL
+		b.acl != b.params.ACL ||
+		b.recurse
 	b.callback(ChmodResult{
 		Mode:    newMode,
 		Owner:   b.ownerBuf,
 		Group:   b.groupBuf,
 		ACL:     b.acl,
+		Recurse: b.recurse,
 		Changed: changed,
 	})
 }
@@ -630,7 +678,7 @@ func (b *chmodBox) apply() {
 
 func (b *chmodBox) openList(target int) {
 	var items []string
-	if target == secOwnerInput {
+	if target == b.ownerSection() {
 		items = ListUsers()
 	} else {
 		items = ListGroups()
@@ -648,7 +696,7 @@ func (b *chmodBox) openList(target int) {
 
 	// Try to select current value
 	current := b.ownerBuf
-	if target == secGroupInput {
+	if target == b.groupSection() {
 		current = b.groupBuf
 	}
 	for i, item := range items {
@@ -670,7 +718,7 @@ func (b *chmodBox) handleListKey(event *tcell.EventKey) {
 	case tcell.KeyEnter:
 		if len(b.listFiltered) > 0 && b.listSelected < len(b.listFiltered) {
 			val := b.listFiltered[b.listSelected]
-			if b.listTarget == secOwnerInput {
+			if b.listTarget == b.ownerSection() {
 				b.ownerBuf = val
 			} else {
 				b.groupBuf = val
@@ -766,6 +814,9 @@ func (b *chmodBox) MouseHandler() func(action tview.MouseAction, event *tcell.Ev
 
 		boxW := 54
 		boxH := 11
+		if b.showRecurse() {
+			boxH++
+		}
 		if b.showACL() {
 			boxH += 3
 		}
@@ -781,7 +832,7 @@ func (b *chmodBox) MouseHandler() func(action tview.MouseAction, event *tcell.Ev
 		btnRow := by + boxH - 2
 		if my == btnRow {
 			okLbl := " OK "
-			caLbl := " Megsem "
+			caLbl := " Cancel "
 			totalW := runeLen(okLbl) + 4 + runeLen(caLbl)
 			sx := bx + (boxW-totalW)/2
 			if mx >= sx && mx < sx+runeLen(okLbl) {

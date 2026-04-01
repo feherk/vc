@@ -815,6 +815,38 @@ func (a *App) MoveFiles() {
 	a.TviewApp.SetFocus(a.Pages)
 }
 
+// RenameFile handles Shift+F6 — simple in-place rename.
+func (a *App) RenameFile() {
+	p := a.GetActivePanel()
+	entry := p.CurrentEntry()
+	if entry == nil || entry.Name == ".." {
+		return
+	}
+
+	dialog.ShowInput(a.Pages, "Rename", "Rename to:", entry.Name, func(newName string) {
+		a.closeDialog("input")
+		if newName == "" || newName == entry.Name {
+			return
+		}
+		oldPath := p.FS.Join(p.Path, entry.Name)
+		newPath := p.FS.Join(p.Path, newName)
+		if err := p.FS.Rename(oldPath, newPath); err != nil {
+			dialog.ShowError(a.Pages, "Rename error: "+err.Error(), func() {
+				a.closeDialog("error")
+			})
+			a.ModalOpen = true
+			a.TviewApp.SetFocus(a.Pages)
+			return
+		}
+		p.Refresh()
+		a.GetInactivePanel().Refresh()
+	}, func() {
+		a.closeDialog("input")
+	})
+	a.ModalOpen = true
+	a.TviewApp.SetFocus(a.Pages)
+}
+
 // MakeDir handles F7.
 func (a *App) MakeDir() {
 	p := a.GetActivePanel()
@@ -960,6 +992,52 @@ func (a *App) ShowChmodDialog() {
 			return
 		}
 
+		chmodMode := result.Mode & (os.ModePerm | os.ModeSetuid | os.ModeSetgid | os.ModeSticky)
+		ownerChanged := p.FS.IsLocal() && (result.Owner != params.Owner || result.Group != params.Group)
+		aclChanged := p.FS.IsLocal() && params.HasACL && result.ACL != params.ACL
+
+		var newUID, newGID int
+		if ownerChanged {
+			newUID, newGID = params.OwnerID, params.GroupID
+			if result.Owner != params.Owner {
+				newUID = lookupUID(result.Owner)
+			}
+			if result.Group != params.Group {
+				newGID = lookupGID(result.Group)
+			}
+		}
+
+		// applyToPath applies chmod/chown/ACL to a single path.
+		applyToPath := func(path string, isDir bool) error {
+			if err := p.FS.Chmod(path, chmodMode); err != nil {
+				return err
+			}
+
+			// Verify special bits were applied (kernel may silently clear them)
+			if p.FS.IsLocal() && chmodMode&(os.ModeSetuid|os.ModeSetgid|os.ModeSticky) != 0 {
+				if after, err := p.FS.Stat(path); err == nil {
+					applied := after.Mode & (os.ModeSetuid | os.ModeSetgid | os.ModeSticky)
+					wanted := chmodMode & (os.ModeSetuid | os.ModeSetgid | os.ModeSticky)
+					if applied != wanted {
+						return fmt.Errorf("special bits could not be set (setuid/setgid/sticky) — may require sudo")
+					}
+				}
+			}
+
+			if ownerChanged && newUID >= 0 && newGID >= 0 {
+				if err := p.FS.Chown(path, newUID, newGID); err != nil {
+					return err
+				}
+			}
+
+			if aclChanged && isDir {
+				if err := dialog.SetDefaultACL(path, result.ACL); err != nil {
+					return err
+				}
+			}
+			return nil
+		}
+
 		// Apply to all entries
 		var firstErr error
 		for _, e := range entries {
@@ -968,50 +1046,19 @@ func (a *App) ShowChmodDialog() {
 			}
 			ePath := p.FS.Join(p.Path, e.Name)
 
-			// Chmod (perm bits + special bits: setuid/setgid/sticky)
-			chmodMode := result.Mode & (os.ModePerm | os.ModeSetuid | os.ModeSetgid | os.ModeSticky)
-			if err := p.FS.Chmod(ePath, chmodMode); err != nil {
-				firstErr = err
+			if result.Recurse && e.IsDir {
+				// Recursive: walk the directory tree
+				firstErr = p.FS.Walk(ePath, func(path string, info vfs.FileInfo, err error) error {
+					if err != nil {
+						return err
+					}
+					return applyToPath(path, info.IsDir)
+				})
+			} else {
+				firstErr = applyToPath(ePath, e.IsDir)
+			}
+			if firstErr != nil {
 				break
-			}
-
-			// Verify special bits were applied (kernel may silently clear them)
-			if p.FS.IsLocal() && chmodMode&(os.ModeSetuid|os.ModeSetgid|os.ModeSticky) != 0 {
-				if after, err := p.FS.Stat(ePath); err == nil {
-					applied := after.Mode & (os.ModeSetuid | os.ModeSetgid | os.ModeSticky)
-					wanted := chmodMode & (os.ModeSetuid | os.ModeSetgid | os.ModeSticky)
-					if applied != wanted {
-						firstErr = fmt.Errorf("special bit nem alkalmazhato (setuid/setgid/sticky) — szukseges lehet: sudo")
-						break
-					}
-				}
-			}
-
-			// Chown (local only, if changed)
-			if p.FS.IsLocal() && (result.Owner != params.Owner || result.Group != params.Group) {
-				uid, gid := params.OwnerID, params.GroupID
-				if result.Owner != params.Owner {
-					uid = lookupUID(result.Owner)
-				}
-				if result.Group != params.Group {
-					gid = lookupGID(result.Group)
-				}
-				if uid >= 0 && gid >= 0 {
-					if err := p.FS.Chown(ePath, uid, gid); err != nil {
-						firstErr = err
-						break
-					}
-				}
-			}
-
-			// Default ACL (local directories only)
-			if p.FS.IsLocal() && params.HasACL && e.IsDir {
-				if result.ACL != params.ACL {
-					if err := dialog.SetDefaultACL(ePath, result.ACL); err != nil {
-						firstErr = err
-						break
-					}
-				}
 			}
 		}
 
@@ -1158,6 +1205,7 @@ func (a *App) showMenuDropdown() {
 			OnQuickPaths:   func() { a.DeactivateMenu(); a.ShowQuickPathsDialog() },
 			OnCheckUpdate:  func() { a.DeactivateMenu(); a.CheckForUpdates() },
 			OnSymlink:      func() { a.DeactivateMenu(); a.CreateSymlink() },
+			OnRename:       func() { a.DeactivateMenu(); a.RenameFile() },
 			OnChmod:        func() { a.DeactivateMenu(); a.ShowChmodDialog() },
 			OnConnect:      func() { a.DeactivateMenu(); a.ShowServerDialogForPanel(p) },
 			OnDisconnect:   func() { a.DeactivateMenu(); a.disconnectPanel(p) },

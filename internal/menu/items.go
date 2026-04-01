@@ -23,6 +23,7 @@ type MenuDefs struct {
 	OnQuickPaths   func()
 	OnCheckUpdate  func()
 	OnSymlink      func()
+	OnRename       func()
 	OnChmod        func()
 	OnConnect           func()
 	OnDisconnect        func()
@@ -54,7 +55,8 @@ func FileMenuItems(defs *MenuDefs) []MenuItem {
 		{Label: "MkDir", Key: "F7", Action: defs.OnMkDir, HotKey: 'K'},
 		{Label: "Delete", Key: "F8", Action: defs.OnDelete, HotKey: 'D'},
 		{Label: "Symlink", Key: "", Action: defs.OnSymlink, HotKey: 'S'},
-		{Label: "Attribútum", Key: "", Action: defs.OnChmod, HotKey: 'A'},
+		{Label: "Rename", Key: "", Action: defs.OnRename, HotKey: 'N'},
+		{Label: "Attributes", Key: "", Action: defs.OnChmod, HotKey: 'A'},
 		{IsSep: true},
 		{Label: "Quit", Key: "F10", Action: defs.OnQuit, HotKey: 'Q'},
 	}
