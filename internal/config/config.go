@@ -31,6 +31,11 @@ type Config struct {
 	CopyPreserveMode bool             `json:"copy_preserve_mode"`
 }
 
+// IsSeparator returns true if this server entry is a visual separator.
+func (s ServerConfig) IsSeparator() bool {
+	return s.Protocol == "separator"
+}
+
 func configPath() string {
 	home, _ := os.UserHomeDir()
 	return filepath.Join(home, ".config", "vc", "config.json")

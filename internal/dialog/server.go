@@ -1,6 +1,8 @@
 package dialog
 
 import (
+	"strings"
+
 	"github.com/gdamore/tcell/v2"
 	"github.com/rivo/tview"
 
@@ -12,10 +14,11 @@ import (
 type ServerDialogCallbacks struct {
 	OnConnect    func(cfg config.ServerConfig)
 	OnDisconnect func(name string)
-	OnAdd        func()
-	OnEdit       func(idx int, cfg config.ServerConfig)
-	OnDelete     func(idx int)
-	OnMove       func(fromIdx, toIdx int)
+	OnAdd          func()
+	OnAddSeparator func(idx int, label string)
+	OnEdit         func(idx int, cfg config.ServerConfig)
+	OnDelete       func(idx int)
+	OnMove         func(fromIdx, toIdx int)
 	OnClose      func()
 	IsConnected  func(name string) bool
 }
@@ -34,9 +37,43 @@ func ShowServerDialog(pages *tview.Pages, servers []config.ServerConfig, cb Serv
 	moveOrigin := -1
 	var savedOrder []config.ServerConfig
 
+	// dialogWidth is calculated later but we need it in renderRows for separators
+	var dialogInnerWidth int
+
 	renderRows := func() {
 		table.Clear()
 		for i, srv := range servers {
+			if srv.IsSeparator() {
+				label := srv.Name
+				if label == "" {
+					label = "─"
+				}
+				// Build separator line: ── label ──────
+				w := dialogInnerWidth - 2 // account for cell padding
+				if w < 10 {
+					w = 40
+				}
+				labelLen := len(label)
+				padLeft := 2
+				padRight := w - padLeft - 2 - labelLen - 2 // 2 for "──", 2 for " label "
+				if padRight < 2 {
+					padRight = 2
+				}
+				line := strings.Repeat("─", padLeft) + " " + label + " " + strings.Repeat("─", padRight)
+
+				fg := theme.ColorDialogBorder
+				bg := theme.ColorDialogBg
+				if moving && i == moveOrigin {
+					fg = tcell.ColorYellow
+				}
+				cell := tview.NewTableCell(line).
+					SetTextColor(fg).
+					SetBackgroundColor(bg).
+					SetExpansion(1).
+					SetSelectable(true)
+				table.SetCell(i, 0, cell)
+				continue
+			}
 			prefix := "  "
 			if cb.IsConnected != nil && cb.IsConnected(srv.Name) {
 				prefix = "* "
@@ -65,7 +102,7 @@ func ShowServerDialog(pages *tview.Pages, servers []config.ServerConfig, cb Serv
 	}
 	renderRows()
 
-	helpNormal := " C-Connect  A-Add  E-Edit  D-Delete  M-Move  X-Disc  Esc-Close "
+	helpNormal := " C-Connect  A-Add  S-Sep  E-Edit  D-Del  M-Move  X-Disc  Esc-Close "
 	helpMoving := " \u2191\u2193-Move  M/Enter-Drop  Esc-Cancel "
 
 	frame := tview.NewFrame(table).SetBorders(0, 0, 0, 0, 0, 0)
@@ -95,7 +132,7 @@ func ShowServerDialog(pages *tview.Pages, servers []config.ServerConfig, cb Serv
 			updateHelp(helpNormal)
 			return
 		}
-		if row >= 0 && row < len(servers) {
+		if row >= 0 && row < len(servers) && !servers[row].IsSeparator() {
 			cb.OnConnect(servers[row])
 		}
 	})
@@ -154,15 +191,24 @@ func ShowServerDialog(pages *tview.Pages, servers []config.ServerConfig, cb Serv
 			row, _ := table.GetSelection()
 			switch event.Rune() {
 			case 'c', 'C':
-				if row >= 0 && row < len(servers) {
+				if row >= 0 && row < len(servers) && !servers[row].IsSeparator() {
 					cb.OnConnect(servers[row])
 				}
 				return nil
 			case 'a', 'A':
 				cb.OnAdd()
 				return nil
+			case 's', 'S':
+				if cb.OnAddSeparator != nil {
+					idx := row + 1
+					if idx > len(servers) {
+						idx = len(servers)
+					}
+					cb.OnAddSeparator(idx, "")
+				}
+				return nil
 			case 'e', 'E':
-				if row >= 0 && row < len(servers) {
+				if row >= 0 && row < len(servers) && !servers[row].IsSeparator() {
 					cb.OnEdit(row, servers[row])
 				}
 				return nil
@@ -172,7 +218,7 @@ func ShowServerDialog(pages *tview.Pages, servers []config.ServerConfig, cb Serv
 				}
 				return nil
 			case 'x', 'X':
-				if row >= 0 && row < len(servers) {
+				if row >= 0 && row < len(servers) && !servers[row].IsSeparator() {
 					cb.OnDisconnect(servers[row].Name)
 				}
 				return nil
@@ -197,6 +243,8 @@ func ShowServerDialog(pages *tview.Pages, servers []config.ServerConfig, cb Serv
 			dialogWidth = w
 		}
 	}
+	dialogInnerWidth = dialogWidth - 4 // border + padding
+	renderRows()                       // re-render with correct width for separators
 	dialogHeight := len(servers) + 4
 	if dialogHeight < 10 {
 		dialogHeight = 10

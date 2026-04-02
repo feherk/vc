@@ -8,6 +8,7 @@ import (
 	"os"
 	"path"
 	"strings"
+	"time"
 
 	"github.com/feherkaroly/vc/internal/config"
 	"github.com/pkg/sftp"
@@ -56,13 +57,26 @@ func NewSFTPFS(cfg config.ServerConfig) (*SFTPFS, error) {
 		User:            cfg.User,
 		Auth:            authMethods,
 		HostKeyCallback: ssh.InsecureIgnoreHostKey(),
+		Timeout:         10 * time.Second,
 	}
 
 	addr := fmt.Sprintf("%s:%d", cfg.Host, port)
-	sshClient, err := ssh.Dial("tcp", addr, sshConfig)
+
+	// Use net.DialTimeout + deadline so the SSH handshake is also bounded
+	conn, err := net.DialTimeout("tcp", addr, 10*time.Second)
 	if err != nil {
 		return nil, fmt.Errorf("SSH dial %s: %w", addr, err)
 	}
+	conn.SetDeadline(time.Now().Add(15 * time.Second))
+
+	c, chans, reqs, err := ssh.NewClientConn(conn, addr, sshConfig)
+	if err != nil {
+		conn.Close()
+		return nil, fmt.Errorf("SSH handshake %s: %w", addr, err)
+	}
+	conn.SetDeadline(time.Time{}) // clear deadline after successful handshake
+
+	sshClient := ssh.NewClient(c, chans, reqs)
 
 	sftpClient, err := sftp.NewClient(sshClient, sftp.UseConcurrentWrites(true))
 	if err != nil {

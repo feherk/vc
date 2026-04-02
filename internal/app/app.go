@@ -1486,6 +1486,21 @@ func (a *App) ShowServerDialogForPanel(targetPanel *panel.Panel) {
 					showDialog()
 				})
 			},
+			OnAddSeparator: func(idx int, label string) {
+				a.Pages.RemovePage("server_dialog")
+				dialog.ShowInput(a.Pages, "Separator", "Label:", "", func(label string) {
+					a.closeDialog("input")
+					sep := config.ServerConfig{Name: label, Protocol: "separator"}
+					cfg.Servers = append(cfg.Servers[:idx], append([]config.ServerConfig{sep}, cfg.Servers[idx:]...)...)
+					a.saveConfigWithServers(cfg)
+					showDialog()
+				}, func() {
+					a.closeDialog("input")
+					showDialog()
+				})
+				a.ModalOpen = true
+				a.TviewApp.SetFocus(a.Pages)
+			},
 			OnEdit: func(idx int, srv config.ServerConfig) {
 				a.Pages.RemovePage("server_dialog")
 				dialog.ShowServerEdit(a.Pages, "Edit Server", srv, func(updated config.ServerConfig) {
@@ -1502,7 +1517,15 @@ func (a *App) ShowServerDialogForPanel(targetPanel *panel.Panel) {
 			OnDelete: func(idx int) {
 				a.closeDialog("server_dialog")
 				name := cfg.Servers[idx].Name
-				dialog.ShowConfirm(a.Pages, "Delete Server", "Delete server '"+name+"'?", func(yes bool) {
+				confirmMsg := "Delete server '" + name + "'?"
+				if cfg.Servers[idx].IsSeparator() {
+					label := name
+					if label == "" {
+						label = "(empty)"
+					}
+					confirmMsg = "Delete separator '" + label + "'?"
+				}
+				dialog.ShowConfirm(a.Pages, "Delete", confirmMsg, func(yes bool) {
 					a.closeDialog("confirm")
 					if yes {
 						cfg.Servers = append(cfg.Servers[:idx], cfg.Servers[idx+1:]...)
@@ -1560,6 +1583,21 @@ func (a *App) ShowServerDialog() {
 					showDialog()
 				})
 			},
+			OnAddSeparator: func(idx int, label string) {
+				a.Pages.RemovePage("server_dialog")
+				dialog.ShowInput(a.Pages, "Separator", "Label:", "", func(label string) {
+					a.closeDialog("input")
+					sep := config.ServerConfig{Name: label, Protocol: "separator"}
+					cfg.Servers = append(cfg.Servers[:idx], append([]config.ServerConfig{sep}, cfg.Servers[idx:]...)...)
+					a.saveConfigWithServers(cfg)
+					showDialog()
+				}, func() {
+					a.closeDialog("input")
+					showDialog()
+				})
+				a.ModalOpen = true
+				a.TviewApp.SetFocus(a.Pages)
+			},
 			OnEdit: func(idx int, srv config.ServerConfig) {
 				a.Pages.RemovePage("server_dialog")
 				dialog.ShowServerEdit(a.Pages, "Edit Server", srv, func(updated config.ServerConfig) {
@@ -1576,7 +1614,15 @@ func (a *App) ShowServerDialog() {
 			OnDelete: func(idx int) {
 				a.closeDialog("server_dialog")
 				name := cfg.Servers[idx].Name
-				dialog.ShowConfirm(a.Pages, "Delete Server", "Delete server '"+name+"'?", func(yes bool) {
+				confirmMsg := "Delete server '" + name + "'?"
+				if cfg.Servers[idx].IsSeparator() {
+					label := name
+					if label == "" {
+						label = "(empty)"
+					}
+					confirmMsg = "Delete separator '" + label + "'?"
+				}
+				dialog.ShowConfirm(a.Pages, "Delete", confirmMsg, func(yes bool) {
 					a.closeDialog("confirm")
 					if yes {
 						cfg.Servers = append(cfg.Servers[:idx], cfg.Servers[idx+1:]...)
