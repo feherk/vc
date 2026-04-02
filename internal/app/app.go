@@ -1414,18 +1414,18 @@ func (a *App) ImportConfig() {
 			a.RightPanel.NavigateTo(imported.RightPanel.Path, "")
 		}
 
-		// Merge servers: imported overwrites existing by name, new ones are appended
+		// Merge servers: imported list keeps its order, existing-only servers are appended
 		current := config.Load()
-		serverMap := make(map[string]config.ServerConfig)
-		for _, s := range current.Servers {
-			serverMap[s.Name] = s
-		}
+		importedNames := make(map[string]struct{})
 		for _, s := range imported.Servers {
-			serverMap[s.Name] = s
+			importedNames[s.Name] = struct{}{}
 		}
-		merged := make([]config.ServerConfig, 0, len(serverMap))
-		for _, s := range serverMap {
-			merged = append(merged, s)
+		merged := make([]config.ServerConfig, 0, len(imported.Servers)+len(current.Servers))
+		merged = append(merged, imported.Servers...)
+		for _, s := range current.Servers {
+			if _, exists := importedNames[s.Name]; !exists {
+				merged = append(merged, s)
+			}
 		}
 
 		a.saveConfigWithServers(&config.Config{Servers: merged})
@@ -1513,6 +1513,9 @@ func (a *App) ShowServerDialogForPanel(targetPanel *panel.Panel) {
 				a.ModalOpen = true
 				a.TviewApp.SetFocus(a.Pages)
 			},
+			OnMove: func(fromIdx, toIdx int) {
+				a.saveConfigWithServers(cfg)
+			},
 			OnClose: func() {
 				a.closeDialog("server_dialog")
 			},
@@ -1583,6 +1586,9 @@ func (a *App) ShowServerDialog() {
 				})
 				a.ModalOpen = true
 				a.TviewApp.SetFocus(a.Pages)
+			},
+			OnMove: func(fromIdx, toIdx int) {
+				a.saveConfigWithServers(cfg)
 			},
 			OnClose: func() {
 				a.closeDialog("server_dialog")

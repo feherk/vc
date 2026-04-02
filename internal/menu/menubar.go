@@ -23,7 +23,7 @@ func NewMenuBar() *MenuBar {
 	m := &MenuBar{
 		Box:     tview.NewBox().SetBackgroundColor(theme.ColorMenuBarBg),
 		Items:   []string{" Left ", " File ", " Commands ", " Options ", " Right "},
-		HotKeys: []rune{'L', 'F', 'C', 'O', 'R'},
+		HotKeys: []rune{'L', 'F', 'C', 'P', 'R'},
 	}
 	return m
 }
