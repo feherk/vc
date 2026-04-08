@@ -51,7 +51,6 @@ curl -L -o ~/.local/bin/vc https://github.com/feherk/vc/releases/latest/download
 chmod +x ~/.local/bin/vc
 ```
 
-Or download `VC-x.x.x-macOS.dmg` from [Releases](https://github.com/feherk/vc/releases) and drag VC to Applications.
 
 ### Windows (cmd)
 

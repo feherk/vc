@@ -25,22 +25,15 @@ Dual-pane terminal file manager written in Go + tview/tcell, classic DOS blue th
 - `internal/fnbar/fnbar.go` — function key bar at bottom, clickable
 - `internal/panel/render.go` — panel rendering (Brief/Full modes)
 - `internal/theme/theme.go` — all color definitions
-- `scripts/build-dmg.sh` — macOS DMG build with code signing + notarization
 
 ## Build & Release
 
-- DMG: `./scripts/build-dmg.sh [version]` — builds universal binary, signs, notarizes, staples
 - Darwin: `GOOS=darwin GOARCH=arm64/amd64 go build -ldflags "-s -w -X main.Version=X.Y.Z" -o dist/vc-darwin-arm64 .`
 - Linux: `GOOS=linux GOARCH=amd64 go build -ldflags "-s -w -X main.Version=X.Y.Z" -o dist/vc-linux-amd64 .`
 - Windows: `GOOS=windows GOARCH=amd64 go build -ldflags "-s -w -X main.Version=X.Y.Z" -o dist/vc-windows-amd64.exe .`
-- Release assets: DMG + darwin arm64/amd64 + linux amd64 + windows amd64 (5 files)
+- Release assets: darwin arm64/amd64 + linux amd64 + windows amd64 (4 files)
 - Release: `gh release create` on `feherk/vc`
 - Version in `main.go` var, NOT ldflags (ldflags used in build scripts)
-
-## Code Signing
-
-- Identity: `Developer ID Application: Károly Fehér (YG66KQ8KDT)`
-- Notarize profile: `vc-notarize` (stored in Keychain)
 
 ## Important Patterns & Lessons
 
