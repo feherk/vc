@@ -67,7 +67,7 @@ func (a *App) SetupKeyBindings() {
 
 		case tcell.KeyF9:
 			if a.activePanel == 1 {
-				a.MenuBar.Selected = 3 // Right
+				a.MenuBar.Selected = 4 // Right
 			} else {
 				a.MenuBar.Selected = 0 // Left
 			}
