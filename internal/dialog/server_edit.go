@@ -2,6 +2,7 @@ package dialog
 
 import (
 	"strconv"
+	"strings"
 
 	"github.com/gdamore/tcell/v2"
 	"github.com/rivo/tview"
@@ -47,6 +48,7 @@ func ShowServerEdit(pages *tview.Pages, title string, srv config.ServerConfig, o
 	form.AddPasswordField("Password:", srv.Password, 30, '*', nil)
 	form.AddInputField("Key Path:", srv.KeyPath, 40, nil, nil)
 	form.AddCheckbox("System ssh:", srv.SystemSSH, nil)
+	form.AddInputField("Via host:", srv.Via, 30, nil, nil)
 
 	form.AddButton("Save", func() {
 		name := form.GetFormItem(0).(*tview.InputField).GetText()
@@ -57,6 +59,7 @@ func ShowServerEdit(pages *tview.Pages, title string, srv config.ServerConfig, o
 		password := form.GetFormItem(5).(*tview.InputField).GetText()
 		keyPath := form.GetFormItem(6).(*tview.InputField).GetText()
 		systemSSH := form.GetFormItem(7).(*tview.Checkbox).IsChecked()
+		via := strings.TrimSpace(form.GetFormItem(8).(*tview.InputField).GetText())
 
 		port := 0
 		if portText != "" {
@@ -64,14 +67,15 @@ func ShowServerEdit(pages *tview.Pages, title string, srv config.ServerConfig, o
 		}
 
 		onSave(config.ServerConfig{
-			Name:     name,
-			Protocol: protocol,
-			Host:     host,
-			Port:     port,
-			User:     user,
-			Password: password,
+			Name:      name,
+			Protocol:  protocol,
+			Host:      host,
+			Port:      port,
+			User:      user,
+			Password:  password,
 			KeyPath:   keyPath,
 			SystemSSH: systemSSH,
+			Via:       via,
 		})
 	})
 	form.AddButton("Cancel", func() {
@@ -87,7 +91,7 @@ func ShowServerEdit(pages *tview.Pages, title string, srv config.ServerConfig, o
 	})
 
 	dialogWidth := 60
-	dialogHeight := 21
+	dialogHeight := 23
 
 	flex := tview.NewFlex().SetDirection(tview.FlexRow).
 		AddItem(nil, 0, 1, false).

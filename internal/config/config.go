@@ -23,6 +23,12 @@ type ServerConfig struct {
 	// SystemSSH connects via the system ssh binary (~/.ssh/config, agent,
 	// security keys). Also used automatically when the key is unusable directly.
 	SystemSSH bool `json:"system_ssh,omitempty"`
+	// Via is an intermediate ssh host (name, user@host or ~/.ssh/config
+	// alias). The system ssh logs in there (with Key Path, if given) and runs
+	// the SFTP session to Host from that machine, with that machine's keys.
+	// For servers the local key cannot reach, e.g. old sshd without
+	// security-key support.
+	Via string `json:"via,omitempty"`
 }
 
 type Config struct {
@@ -31,7 +37,7 @@ type Config struct {
 	ActivePanel      int               `json:"active_panel"`
 	Servers          []ServerConfig    `json:"servers,omitempty"`
 	QuickPaths       map[string]string `json:"quick_paths,omitempty"`
-	CopyPreserveMode bool             `json:"copy_preserve_mode"`
+	CopyPreserveMode bool              `json:"copy_preserve_mode"`
 }
 
 // IsSeparator returns true if this server entry is a visual separator.

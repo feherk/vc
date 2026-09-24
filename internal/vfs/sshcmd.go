@@ -48,7 +48,7 @@ func UsesSystemSSH(cfg config.ServerConfig) bool {
 	if cfg.Protocol != "sftp" {
 		return false
 	}
-	if cfg.SystemSSH {
+	if cfg.SystemSSH || cfg.Via != "" {
 		return true
 	}
 	if cfg.KeyPath == "" {
@@ -111,28 +111,54 @@ func (t *stderrTap) lastLine() string {
 	return strings.TrimSpace(lines[len(lines)-1])
 }
 
-// newSystemSSHSFTP runs `ssh -s host sftp` and speaks SFTP over its pipes.
-// ssh reads PIN / passphrase from the controlling terminal, so the caller
-// must suspend the TUI while this runs.
+// shellQuote quotes s for a POSIX shell (the remote login shell on the Via
+// host parses the relayed command line).
+func shellQuote(s string) string {
+	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
+}
+
+// sshArgs builds the system ssh command line. Without Via:
+// `ssh [-p port] [-l user] [-i key] -s -- host sftp`. With Via the local ssh
+// logs in to the Via host (Key Path applies to this hop) and runs the
+// `ssh -s … sftp` to Host there, non-interactively, with that machine's
+// own keys and ~/.ssh/config.
+func sshArgs(cfg config.ServerConfig) []string {
+	target := []string{}
+	if cfg.Port != 0 {
+		target = append(target, "-p", strconv.Itoa(cfg.Port))
+	}
+	if cfg.User != "" {
+		target = append(target, "-l", cfg.User)
+	}
+	args := []string{"-o", "ConnectTimeout=10", "-o", "ServerAliveInterval=30"}
+	if kp := ExpandKeyPath(cfg.KeyPath); kp != "" {
+		args = append(args, "-i", kp, "-o", "IdentitiesOnly=yes")
+	}
+	if cfg.Via == "" {
+		args = append(args, target...)
+		return append(args, "-s", "--", cfg.Host, "sftp")
+	}
+	remote := []string{"ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=10", "-o", "ServerAliveInterval=30"}
+	remote = append(remote, target...)
+	remote = append(remote, "-s", "--", cfg.Host, "sftp")
+	quoted := make([]string, len(remote))
+	for i, r := range remote {
+		quoted[i] = shellQuote(r)
+	}
+	return append(args, "--", cfg.Via, strings.Join(quoted, " "))
+}
+
+// newSystemSSHSFTP runs `ssh -s host sftp` (or, with Via, the same on the
+// Via host) and speaks SFTP over its pipes. ssh reads PIN / passphrase from
+// the controlling terminal, so the caller must suspend the TUI while this
+// runs.
 func newSystemSSHSFTP(cfg config.ServerConfig) (*SFTPFS, error) {
 	sshBin, err := findSSH()
 	if err != nil {
 		return nil, err
 	}
 
-	args := []string{"-o", "ConnectTimeout=10", "-o", "ServerAliveInterval=30"}
-	if cfg.Port != 0 {
-		args = append(args, "-p", strconv.Itoa(cfg.Port))
-	}
-	if cfg.User != "" {
-		args = append(args, "-l", cfg.User)
-	}
-	if kp := ExpandKeyPath(cfg.KeyPath); kp != "" {
-		args = append(args, "-i", kp, "-o", "IdentitiesOnly=yes")
-	}
-	args = append(args, "-s", "--", cfg.Host, "sftp")
-
-	cmd := exec.Command(sshBin, args...)
+	cmd := exec.Command(sshBin, sshArgs(cfg)...)
 	tap := &stderrTap{out: os.Stderr}
 	cmd.Stderr = tap
 	stdin, err := cmd.StdinPipe()

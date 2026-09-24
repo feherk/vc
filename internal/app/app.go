@@ -1643,7 +1643,11 @@ func (a *App) connectPanel(p *panel.Panel, srv config.ServerConfig) {
 		var fs vfs.FileSystem
 		var err error
 		a.TviewApp.Suspend(func() {
-			fmt.Printf("\r\nConnecting to %s via ssh... (Ctrl+C to cancel)\r\n", srv.Name)
+			if srv.Via != "" {
+				fmt.Printf("\r\nConnecting to %s via ssh through %s... (Ctrl+C to cancel)\r\n", srv.Name, srv.Via)
+			} else {
+				fmt.Printf("\r\nConnecting to %s via ssh... (Ctrl+C to cancel)\r\n", srv.Name)
+			}
 			// Ctrl+C must only stop ssh, not vc
 			sig := make(chan os.Signal, 1)
 			signal.Notify(sig, os.Interrupt)

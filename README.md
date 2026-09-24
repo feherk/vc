@@ -61,6 +61,7 @@ The built-in SSH client handles plain private keys and passwords. In every other
 - **Key Path** points to a hardware-backed key (`id_yk`, `id_ed25519_sk`) or a passphrase-protected key — a bare file name is looked up in `~/.ssh/`, `~/` is expanded
 - the **System ssh** checkbox is ticked in the server dialog
 - both Password and Key Path are empty — then Host may be a `~/.ssh/config` alias, and User/Port can stay empty too
+- **Via host** is set — ssh logs in to that machine first (`~/.ssh/config` alias or `user@host`, Key Path applies to this hop) and runs the SFTP session to Host from there, with *that* machine's keys. Use it for servers your local key cannot reach, e.g. an old sshd that does not accept security keys.
 
 While connecting, vc leaves the terminal to ssh so PIN, passphrase and touch prompts are visible; Ctrl+C cancels the connection only.
 
