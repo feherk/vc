@@ -21,6 +21,7 @@ type SFTPFS struct {
 	client    *sftp.Client
 	sshClient *ssh.Client // built-in client
 	cmd       *exec.Cmd   // system ssh process (see sshcmd.go)
+	logPath   string      // ssh -E log file of that process, removed on Close
 }
 
 // NewSFTPFS establishes an SFTP connection based on the given server config.
@@ -289,6 +290,9 @@ func (s *SFTPFS) Close() error {
 	}
 	if s.cmd != nil {
 		stopCmd(s.cmd)
+	}
+	if s.logPath != "" {
+		os.Remove(s.logPath)
 	}
 	return err
 }

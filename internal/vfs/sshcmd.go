@@ -148,19 +148,64 @@ func sshArgs(cfg config.ServerConfig) []string {
 	return append(args, "--", cfg.Via, strings.Join(quoted, " "))
 }
 
+// isTerminal reports whether f is a character device (tty / console).
+func isTerminal(f *os.File) bool {
+	fi, err := f.Stat()
+	return err == nil && fi.Mode()&os.ModeCharDevice != 0
+}
+
+// lastLogLine returns the last non-empty line of the ssh log file.
+func lastLogLine(path string) string {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return ""
+	}
+	lines := strings.Split(strings.TrimSpace(string(data)), "\n")
+	return strings.TrimSpace(lines[len(lines)-1])
+}
+
 // newSystemSSHSFTP runs `ssh -s host sftp` (or, with Via, the same on the
 // Via host) and speaks SFTP over its pipes. ssh reads PIN / passphrase from
 // the controlling terminal, so the caller must suspend the TUI while this
 // runs.
+//
+// When our stderr is a terminal, ssh gets it directly so that the security
+// key "Confirm user presence" notice is printed there (with a pipe on fd 2
+// ssh tries an ssh-askpass program instead, which Homebrew does not ship),
+// and its log messages (errors, warnings) go to a temp file via `-E`, from
+// which the error dialog takes the last line. Without a terminal everything
+// goes through the stderr tap as before.
 func newSystemSSHSFTP(cfg config.ServerConfig) (*SFTPFS, error) {
 	sshBin, err := findSSH()
 	if err != nil {
 		return nil, err
 	}
 
-	cmd := exec.Command(sshBin, sshArgs(cfg)...)
-	tap := &stderrTap{out: os.Stderr}
-	cmd.Stderr = tap
+	args := sshArgs(cfg)
+	var (
+		tap     *stderrTap
+		logPath string
+	)
+	if isTerminal(os.Stderr) {
+		if f, err := os.CreateTemp("", "vc-ssh-*.log"); err == nil {
+			logPath = f.Name()
+			f.Close()
+			args = append([]string{"-E", logPath}, args...)
+		}
+	}
+	cmd := exec.Command(sshBin, args...)
+	if logPath != "" {
+		cmd.Stderr = os.Stderr
+	} else {
+		tap = &stderrTap{out: os.Stderr}
+		cmd.Stderr = tap
+	}
+	lastLine := func() string {
+		if tap != nil {
+			return tap.lastLine()
+		}
+		return lastLogLine(logPath)
+	}
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
 		return nil, err
@@ -170,6 +215,9 @@ func newSystemSSHSFTP(cfg config.ServerConfig) (*SFTPFS, error) {
 		return nil, err
 	}
 	if err := cmd.Start(); err != nil {
+		if logPath != "" {
+			os.Remove(logPath)
+		}
 		return nil, fmt.Errorf("start ssh: %w", err)
 	}
 
@@ -178,14 +226,20 @@ func newSystemSSHSFTP(cfg config.ServerConfig) (*SFTPFS, error) {
 		stdin.Close()
 		cmd.Process.Kill()
 		cmd.Wait()
-		if msg := tap.lastLine(); msg != "" {
+		msg := lastLine()
+		if logPath != "" {
+			os.Remove(logPath)
+		}
+		if msg != "" {
 			return nil, fmt.Errorf("ssh: %s", msg)
 		}
 		return nil, fmt.Errorf("SFTP over ssh: %w", err)
 	}
-	tap.detach()
+	if tap != nil {
+		tap.detach()
+	}
 
-	return &SFTPFS{client: client, cmd: cmd}, nil
+	return &SFTPFS{client: client, cmd: cmd, logPath: logPath}, nil
 }
 
 // stopCmd waits briefly for ssh to exit after its stdin closed, then kills it.
