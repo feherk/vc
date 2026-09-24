@@ -16,6 +16,7 @@ Dual-pane terminal file manager written in Go + tview/tcell, classic DOS blue th
 - `internal/menu/dropdown.go` — custom Dropdown widget (use this, NOT tview.List for menus)
 - `internal/menu/menubar.go` — MenuBar widget with mouse click support
 - `internal/dialog/server.go` — server list dialog (F1, uses tview.Table NOT List)
+- `internal/vfs/sftpfs.go` — built-in SFTP client (x/crypto/ssh); `internal/vfs/sshcmd.go` — SFTP over the system `ssh -s sftp` (security keys, passphrases, ssh-config)
 - `internal/dialog/format.go` — format selection dialog (custom formatBox widget)
 - `internal/dialog/chmod.go` — chmod/chown dialog (custom chmodBox widget, formatBox pattern)
 - `internal/dialog/chmod_unix.go` — Unix: file ownership, ACL read/write via getfacl/setfacl
@@ -28,12 +29,11 @@ Dual-pane terminal file manager written in Go + tview/tcell, classic DOS blue th
 
 ## Build & Release
 
-- Darwin: `GOOS=darwin GOARCH=arm64/amd64 go build -ldflags "-s -w -X main.Version=X.Y.Z" -o dist/vc-darwin-arm64 .`
-- Linux: `GOOS=linux GOARCH=amd64 go build -ldflags "-s -w -X main.Version=X.Y.Z" -o dist/vc-linux-amd64 .`
-- Windows: `GOOS=windows GOARCH=amd64 go build -ldflags "-s -w -X main.Version=X.Y.Z" -o dist/vc-windows-amd64.exe .`
-- Release assets: darwin arm64/amd64 + linux amd64 + windows amd64 (4 files)
-- Release: `gh release create` on `feherk/vc`
-- Version in `main.go` var, NOT ldflags (ldflags used in build scripts)
+- `./build.sh` — builds all release assets into `dist/` (`CGO_ENABLED=0`, `-trimpath`, version read from `main.go`); `--local` = linux only, `--install` = replace `~/.local/bin/vc` (keeps `vc.bak`, `--rollback` restores), `--no-notarize` = sign but skip Apple
+- Release assets: darwin arm64 + linux amd64 + windows amd64 (3 files). No Intel Mac build.
+- macOS binary is **Developer ID signed + notarized** by `build.sh` via `rcodesign` (works on Linux, no Mac needed): keys in `~/.secrets/apple/` (`developerid.pem`, `notary-key.json`), identifier `hu.feherkaroly.vc`, hardened runtime. Without signing Gatekeeper prompts on every new build downloaded by a browser.
+- Release: bump `Version` in `main.go` → `./build.sh` → commit → push → `gh release create vX.Y.Z dist/vc-* -R feherk/vc`
+- Version in `main.go` var, NOT ldflags (build.sh passes the same value via ldflags)
 
 ## Important Patterns & Lessons
 
@@ -66,11 +66,12 @@ Dual-pane terminal file manager written in Go + tview/tcell, classic DOS blue th
 - Server dialog uses `tview.Table` NOT `tview.List`
 - `CmdLineFocused` flag must be reset on: Tab (switchPanel), Backspace on empty input, Escape
 - Panel focus tracking (`SetFocusFunc`) must ignore changes during `MenuActive`/`ModalOpen`
-- F2 format dialog: context-dependent (encrypt for files + archives, decrypt for .enc, extract for archives, compress for dirs/multi)
+- F2 format dialog: context-dependent (encrypt for files + archives, decrypt for .enc, extract for archives, compress for dirs/multi). Encrypt/decrypt go through the VFS (`encryptFile`/`decryptFile` take a `vfs.FileSystem`), so they work on SFTP panels too; compress/extract are local-only (`showRemoteError`). Decrypt never overwrites (`uniqueFileName`) and strips any path from the stored name; extract tolerates `./` root entries and falls back to 0644 for zero-mode files; archive writers return Close errors (disk full).
 - `runWithSpinner()` reusable helper for async ops with spinner
 - Config stores `active_panel` (0=left, 1=right), restored on startup
 - Quick Paths: config `QuickPaths map[string]string`, Alt+1..9 keybindings
 - Recursive `showDialog` pattern (ServerDialog & QuickPathsDialog) for dialogs that reopen after sub-actions
+- SFTP via system ssh (`vfs.UsesSystemSSH`): used when `SystemSSH` is set, when neither key nor password is given, or when `ssh.ParsePrivateKey` fails on the key (sk-/YubiKey keys, passphrase-protected keys). Runs `ssh -s -- host sftp` (prefers `/opt/homebrew/bin/ssh` on macOS — Apple's ssh has no FIDO support), `sftp.NewClientPipe` on its pipes. `connectPanel` wraps it in `TviewApp.Suspend` so PIN/touch prompts reach the terminal; SIGINT is caught so Ctrl+C only kills ssh. Key Path: bare name → `~/.ssh/<name>`, `~/` expanded (`vfs.ExpandKeyPath`). `SFTPFS.Close` closes the sftp client, then waits/kills the ssh process.
 - Self-update: Commands → Check for Updates, GitHub API (`feherk/vc/releases/latest`), asset pattern `vc-{GOOS}-{GOARCH}`, atomic binary replace via temp file + `os.Rename`
 - Symlink: File menu → Symlink, creates symlinks in inactive panel dir pointing to active panel entries. Single entry → input dialog for link name, multiple → original names. Local-only (`os.Symlink`), no spinner needed.
 - File attributes: File menu → Attribútum (hotkey A), chmod/chown dialog with custom chmodBox widget. VFS Chmod/Chown on LocalFS, SFTPFS (supported), FTPFS (error). Owner/group picker via Enter on input field, searchable list from `/etc/passwd`/`/etc/group`. Default ACL section for directories on Linux when `getfacl`/`setfacl` installed (`sudo apt install acl`). Multi-file: applies same settings to all selected entries. Build tags: `chmod_unix.go` (unix) / `chmod_other.go` (!unix).

@@ -10,12 +10,8 @@ import (
 	"runtime"
 	"strconv"
 	"strings"
-	"time"
-
-	"github.com/rivo/tview"
 
 	"github.com/feherkaroly/vc/internal/dialog"
-	"github.com/feherkaroly/vc/internal/theme"
 )
 
 type ghRelease struct {
@@ -30,7 +26,7 @@ type ghAsset struct {
 
 // CheckForUpdates queries the latest GitHub release and offers to update if newer.
 func (a *App) CheckForUpdates() {
-	spinner := a.showSpinner("Checking...")
+	spinner := a.startSpinner("Checking...")
 
 	go func() {
 		rel, err := fetchLatestRelease()
@@ -98,7 +94,7 @@ func (a *App) CheckForUpdates() {
 }
 
 func (a *App) doUpdate(downloadURL, latest string) {
-	spinner := a.showSpinner("Updating...")
+	spinner := a.startSpinner("Updating...")
 
 	go func() {
 		err := downloadAndReplace(downloadURL)
@@ -120,61 +116,11 @@ func (a *App) doUpdate(downloadURL, latest string) {
 	}()
 }
 
-type spinner struct {
-	view *tview.TextView
-	done chan struct{}
-}
-
-func (a *App) showSpinner(label string) *spinner {
-	sv := tview.NewTextView()
-	sv.SetBackgroundColor(theme.ColorDialogBg)
-	sv.SetTextColor(theme.ColorDialogFg)
-	sv.SetBorder(true)
-	sv.SetBorderColor(theme.ColorDialogBorder)
-	sv.SetTextAlign(tview.AlignCenter)
-
-	if len(label) > 20 {
-		label = label[:20] + "..."
-	}
-	boxW := len(label) + 6
-	if boxW < 18 {
-		boxW = 18
-	}
-	_, _, screenW, screenH := a.Pages.GetInnerRect()
-	sv.SetRect(screenW-boxW-1, screenH-4, boxW, 3)
-	sv.SetText(label + " |")
-
-	a.Pages.AddPage("update-spinner", sv, false, true)
-	a.focusActiveTable()
-
-	done := make(chan struct{})
-	go func() {
-		spinChars := [4]rune{'|', '/', '-', '\\'}
-		spinIdx := 0
-		ticker := time.NewTicker(150 * time.Millisecond)
-		defer ticker.Stop()
-		for {
-			select {
-			case <-done:
-				return
-			case <-ticker.C:
-				spinIdx = (spinIdx + 1) % 4
-				ch := spinChars[spinIdx]
-				a.TviewApp.QueueUpdateDraw(func() {
-					sv.SetText(fmt.Sprintf("%s %c", label, ch))
-				})
-			}
-		}
-	}()
-
-	return &spinner{view: sv, done: done}
-}
-
-func (a *App) removeSpinner(s *spinner) {
-	close(s.done)
+// removeSpinner hides a spinner started with startSpinner from a worker goroutine.
+func (a *App) removeSpinner(stop func()) {
 	a.TviewApp.QueueUpdateDraw(func() {
 		saved := a.activePanel
-		a.Pages.RemovePage("update-spinner")
+		stop()
 		a.activePanel = saved
 		a.focusActiveTable()
 		a.updatePanelStates()

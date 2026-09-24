@@ -6,6 +6,7 @@ import (
 	"io/fs"
 	"net"
 	"os"
+	"os/exec"
 	"path"
 	"strings"
 	"time"
@@ -18,11 +19,16 @@ import (
 // SFTPFS implements FileSystem over an SSH/SFTP connection.
 type SFTPFS struct {
 	client    *sftp.Client
-	sshClient *ssh.Client
+	sshClient *ssh.Client // built-in client
+	cmd       *exec.Cmd   // system ssh process (see sshcmd.go)
 }
 
 // NewSFTPFS establishes an SFTP connection based on the given server config.
 func NewSFTPFS(cfg config.ServerConfig) (*SFTPFS, error) {
+	if UsesSystemSSH(cfg) {
+		return newSystemSSHSFTP(cfg)
+	}
+
 	port := cfg.Port
 	if port == 0 {
 		port = 22
@@ -32,9 +38,10 @@ func NewSFTPFS(cfg config.ServerConfig) (*SFTPFS, error) {
 
 	// Private key authentication
 	if cfg.KeyPath != "" {
-		keyData, err := os.ReadFile(cfg.KeyPath)
+		keyPath := ExpandKeyPath(cfg.KeyPath)
+		keyData, err := os.ReadFile(keyPath)
 		if err != nil {
-			return nil, fmt.Errorf("read key %s: %w", cfg.KeyPath, err)
+			return nil, fmt.Errorf("read key %s: %w", keyPath, err)
 		}
 		var signer ssh.Signer
 		signer, err = ssh.ParsePrivateKey(keyData)
@@ -276,8 +283,14 @@ func (s *SFTPFS) IsLocal() bool {
 }
 
 func (s *SFTPFS) Close() error {
-	s.client.Close()
-	return s.sshClient.Close()
+	err := s.client.Close()
+	if s.sshClient != nil {
+		err = s.sshClient.Close()
+	}
+	if s.cmd != nil {
+		stopCmd(s.cmd)
+	}
+	return err
 }
 
 func fileInfoFromOS(fi os.FileInfo) FileInfo {

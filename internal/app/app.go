@@ -14,7 +14,9 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"os/signal"
 	"os/user"
+	"path"
 	"path/filepath"
 	"runtime"
 	"strconv"
@@ -34,7 +36,6 @@ import (
 	"github.com/feherkaroly/vc/internal/model"
 	"github.com/feherkaroly/vc/internal/panel"
 	"github.com/feherkaroly/vc/internal/platform"
-	"github.com/feherkaroly/vc/internal/theme"
 	"github.com/feherkaroly/vc/internal/vfs"
 	"github.com/feherkaroly/vc/internal/viewer"
 )
@@ -51,9 +52,11 @@ type App struct {
 	FnBar   *fnbar.FnBar
 	ConnMgr *vfs.ConnMgr
 
-	activePanel    int // 0 = left, 1 = right
-	MenuActive     bool
-	ModalOpen      bool
+	activePanel int // 0 = left, 1 = right
+	spinners    []*spinner
+	spinnerSeq  int
+	MenuActive  bool
+	ModalOpen   bool
 
 	lastClickTime  time.Time
 	lastClickRow   int
@@ -311,12 +314,14 @@ func (a *App) viewZipContents(path string) {
 // or encrypt/decrypt a single file.
 func (a *App) CompressFiles() {
 	p := a.GetActivePanel()
-	if p.IsRemote() {
-		a.showRemoteError("Compress")
-		return
-	}
 	entries := p.GetSelectedOrCurrent()
 	if len(entries) == 0 {
+		return
+	}
+	// Remote panels: only encrypt/decrypt work through the VFS (they process the
+	// whole file in memory); compress/extract need the local disk.
+	if p.IsRemote() && (len(entries) != 1 || entries[0].IsDir) {
+		a.showRemoteError("Compress")
 		return
 	}
 
@@ -333,6 +338,10 @@ func (a *App) CompressFiles() {
 		a.closeDialog("format")
 
 		if format == "extract" {
+			if p.IsRemote() {
+				a.showRemoteError("Extract")
+				return
+			}
 			srcPath := filepath.Join(p.Path, entries[0].Name)
 			destDir := uniqueExtractDir(p.Path, entries[0].Name)
 			a.runWithSpinner(entries[0].Name, func() error {
@@ -349,13 +358,14 @@ func (a *App) CompressFiles() {
 		}
 
 		if format == "encrypt" {
-			srcPath := filepath.Join(p.Path, entries[0].Name)
+			fsys := p.FS
+			srcPath := fsys.Join(p.Path, entries[0].Name)
 			dialog.ShowPasswordDialog(a.Pages, "Encrypt", true, func(password string) {
 				a.closeDialog("password")
 				dstName := fmt.Sprintf("enc_%d.enc", time.Now().Unix())
-				dstPath := filepath.Join(p.Path, dstName)
+				dstPath := fsys.Join(p.Path, dstName)
 				a.runWithSpinner(dstName, func() error {
-					return encryptFile(srcPath, dstPath, password)
+					return encryptFile(fsys, srcPath, dstPath, password)
 				})
 			}, func() {
 				a.closeDialog("password")
@@ -366,11 +376,12 @@ func (a *App) CompressFiles() {
 		}
 
 		if format == "decrypt" {
-			srcPath := filepath.Join(p.Path, entries[0].Name)
+			fsys := p.FS
+			srcPath := fsys.Join(p.Path, entries[0].Name)
 			dialog.ShowPasswordDialog(a.Pages, "Decrypt", false, func(password string) {
 				a.closeDialog("password")
 				a.runWithSpinner(entries[0].Name, func() error {
-					_, err := decryptFile(srcPath, p.Path, password)
+					_, err := decryptFile(fsys, srcPath, p.Path, password)
 					return err
 				})
 			}, func() {
@@ -378,6 +389,11 @@ func (a *App) CompressFiles() {
 			})
 			a.ModalOpen = true
 			a.TviewApp.SetFocus(a.Pages)
+			return
+		}
+
+		if p.IsRemote() {
+			a.showRemoteError("Compress")
 			return
 		}
 
@@ -411,51 +427,9 @@ func (a *App) CompressFiles() {
 			srcDir := p.Path
 			archivePath := filepath.Join(srcDir, name)
 
-			// Non-modal spinner in bottom-right corner
-			spinView := tview.NewTextView()
-			spinView.SetBackgroundColor(theme.ColorDialogBg)
-			spinView.SetTextColor(theme.ColorDialogFg)
-			spinView.SetBorder(true)
-			spinView.SetBorderColor(theme.ColorDialogBorder)
-			spinView.SetTextAlign(tview.AlignCenter)
-
-			displayName := name
-			if len(displayName) > 20 {
-				displayName = displayName[:20] + "..."
-			}
-			boxW := len(displayName) + 6
-			if boxW < 18 {
-				boxW = 18
-			}
-			_, _, screenW, screenH := a.Pages.GetInnerRect()
-			spinView.SetRect(screenW-boxW-1, screenH-4, boxW, 3)
-			spinView.SetText(displayName + " |")
-
-			a.Pages.AddPage("spinner", spinView, false, true)
-			a.focusActiveTable()
+			stopSpinner := a.startSpinner(name)
 
 			go func() {
-				spinChars := [4]rune{'|', '/', '-', '\\'}
-				spinIdx := 0
-				done := make(chan struct{})
-
-				go func() {
-					ticker := time.NewTicker(150 * time.Millisecond)
-					defer ticker.Stop()
-					for {
-						select {
-						case <-done:
-							return
-						case <-ticker.C:
-							spinIdx = (spinIdx + 1) % 4
-							ch := spinChars[spinIdx]
-							a.TviewApp.QueueUpdateDraw(func() {
-								spinView.SetText(fmt.Sprintf("%s %c", displayName, ch))
-							})
-						}
-					}
-				}()
-
 				var err error
 				switch format {
 				case "tar":
@@ -465,11 +439,9 @@ func (a *App) CompressFiles() {
 				default:
 					err = createZip(archivePath, srcDir, entries)
 				}
-				close(done)
-
 				a.TviewApp.QueueUpdateDraw(func() {
 					saved := a.activePanel
-					a.Pages.RemovePage("spinner")
+					stopSpinner()
 					a.activePanel = saved
 					a.focusActiveTable()
 					a.updatePanelStates()
@@ -507,7 +479,6 @@ func createZip(zipPath, baseDir string, entries []model.FileEntry) error {
 	defer f.Close()
 
 	w := zip.NewWriter(f)
-	defer w.Close()
 
 	for _, entry := range entries {
 		srcPath := filepath.Join(baseDir, entry.Name)
@@ -517,10 +488,15 @@ func createZip(zipPath, baseDir string, entries []model.FileEntry) error {
 			err = addFileToZip(w, srcPath, entry.Name)
 		}
 		if err != nil {
+			w.Close()
 			return err
 		}
 	}
-	return nil
+	// Close errors (e.g. disk full) would otherwise leave a truncated archive unnoticed
+	if err := w.Close(); err != nil {
+		return err
+	}
+	return f.Close()
 }
 
 func addFileToZip(w *zip.Writer, filePath, nameInZip string) error {
@@ -590,14 +566,13 @@ func createTar(tarPath, baseDir string, entries []model.FileEntry, compress bool
 	defer f.Close()
 
 	var tw *tar.Writer
+	var gw *gzip.Writer
 	if compress {
-		gw := gzip.NewWriter(f)
-		defer gw.Close()
+		gw = gzip.NewWriter(f)
 		tw = tar.NewWriter(gw)
 	} else {
 		tw = tar.NewWriter(f)
 	}
-	defer tw.Close()
 
 	for _, entry := range entries {
 		srcPath := filepath.Join(baseDir, entry.Name)
@@ -607,10 +582,23 @@ func createTar(tarPath, baseDir string, entries []model.FileEntry, compress bool
 			err = addFileToTar(tw, srcPath, entry.Name)
 		}
 		if err != nil {
+			tw.Close()
+			if gw != nil {
+				gw.Close()
+			}
 			return err
 		}
 	}
-	return nil
+	// Close errors (e.g. disk full) would otherwise leave a truncated archive unnoticed
+	if err := tw.Close(); err != nil {
+		return err
+	}
+	if gw != nil {
+		if err := gw.Close(); err != nil {
+			return err
+		}
+	}
+	return f.Close()
 }
 
 func addFileToTar(tw *tar.Writer, filePath, nameInTar string) error {
@@ -747,7 +735,7 @@ func (a *App) CopyFiles() {
 			target = filepath.Join(src.Path, target)
 		}
 
-		a.runWithSpinnerOverwrite("Copying", dstFS, entries,
+		a.runWithSpinnerOverwrite("Copying "+desc, dstFS, entries,
 			func(entry model.FileEntry) string {
 				return dstFS.Join(target, entry.Name)
 			},
@@ -793,7 +781,7 @@ func (a *App) MoveFiles() {
 		}
 
 		singleEntry := len(entries) == 1
-		a.runWithSpinnerOverwrite("Moving", dstFS, entries,
+		a.runWithSpinnerOverwrite("Moving "+desc, dstFS, entries,
 			func(entry model.FileEntry) string {
 				if singleEntry {
 					return target
@@ -1161,7 +1149,6 @@ func (a *App) resetSearchTimer(p *panel.Panel) {
 	})
 }
 
-
 // ActivateMenu activates the top menu bar.
 func (a *App) ActivateMenu() {
 	a.MenuActive = true
@@ -1185,19 +1172,19 @@ func (a *App) DeactivateMenu() {
 func (a *App) showMenuDropdown() {
 	panelDefs := func(p *panel.Panel) *menu.MenuDefs {
 		return &menu.MenuDefs{
-			OnBriefMode: func() { p.Mode = panel.ModeBrief; a.SaveConfig(); a.DeactivateMenu() },
-			OnFullMode:  func() { p.Mode = panel.ModeFull; a.SaveConfig(); a.DeactivateMenu() },
-			OnSortName:  func() { a.setSortModeOn(p, panel.SortByName); a.DeactivateMenu() },
-			OnSortExt:   func() { a.setSortModeOn(p, panel.SortByExtension); a.DeactivateMenu() },
-			OnSortSize:  func() { a.setSortModeOn(p, panel.SortBySize); a.DeactivateMenu() },
-			OnSortTime:  func() { a.setSortModeOn(p, panel.SortByTime); a.DeactivateMenu() },
-			OnCopy:      func() { a.DeactivateMenu(); a.CopyFiles() },
-			OnMove:      func() { a.DeactivateMenu(); a.MoveFiles() },
-			OnMkDir:     func() { a.DeactivateMenu(); a.MakeDir() },
-			OnDelete:    func() { a.DeactivateMenu(); a.DeleteFiles() },
-			OnQuit:      func() { a.SaveConfig(); a.TviewApp.Stop() },
-			OnSwapPanels: func() { a.DeactivateMenu(); a.swapPanels() },
-			OnRefresh:   func() { a.DeactivateMenu(); a.GetActivePanel().Refresh(); a.GetInactivePanel().Refresh() },
+			OnBriefMode:    func() { p.Mode = panel.ModeBrief; a.SaveConfig(); a.DeactivateMenu() },
+			OnFullMode:     func() { p.Mode = panel.ModeFull; a.SaveConfig(); a.DeactivateMenu() },
+			OnSortName:     func() { a.setSortModeOn(p, panel.SortByName); a.DeactivateMenu() },
+			OnSortExt:      func() { a.setSortModeOn(p, panel.SortByExtension); a.DeactivateMenu() },
+			OnSortSize:     func() { a.setSortModeOn(p, panel.SortBySize); a.DeactivateMenu() },
+			OnSortTime:     func() { a.setSortModeOn(p, panel.SortByTime); a.DeactivateMenu() },
+			OnCopy:         func() { a.DeactivateMenu(); a.CopyFiles() },
+			OnMove:         func() { a.DeactivateMenu(); a.MoveFiles() },
+			OnMkDir:        func() { a.DeactivateMenu(); a.MakeDir() },
+			OnDelete:       func() { a.DeactivateMenu(); a.DeleteFiles() },
+			OnQuit:         func() { a.SaveConfig(); a.TviewApp.Stop() },
+			OnSwapPanels:   func() { a.DeactivateMenu(); a.swapPanels() },
+			OnRefresh:      func() { a.DeactivateMenu(); a.GetActivePanel().Refresh(); a.GetInactivePanel().Refresh() },
 			OnViewFile:     func() { a.DeactivateMenu(); a.ViewFile() },
 			OnEditFile:     func() { a.DeactivateMenu(); a.EditFile() },
 			OnExportConfig: func() { a.DeactivateMenu(); a.ExportConfig() },
@@ -1431,7 +1418,7 @@ func (a *App) ImportConfig() {
 		a.saveConfigWithServers(&config.Config{Servers: merged})
 		a.LeftPanel.Refresh()
 		a.RightPanel.Refresh()
-	
+
 	}, func() {
 		a.closeDialog("input")
 	})
@@ -1650,6 +1637,23 @@ func (a *App) ShowServerDialog() {
 }
 
 func (a *App) connectPanel(p *panel.Panel, srv config.ServerConfig) {
+	// System ssh may prompt for a PIN, passphrase or security key touch on the
+	// terminal, so the TUI is suspended while it connects.
+	if vfs.UsesSystemSSH(srv) && !a.ConnMgr.IsConnected(srv.Name) {
+		var fs vfs.FileSystem
+		var err error
+		a.TviewApp.Suspend(func() {
+			fmt.Printf("\r\nConnecting to %s via ssh... (Ctrl+C to cancel)\r\n", srv.Name)
+			// Ctrl+C must only stop ssh, not vc
+			sig := make(chan os.Signal, 1)
+			signal.Notify(sig, os.Interrupt)
+			defer signal.Stop(sig)
+			fs, err = a.ConnMgr.Connect(srv)
+		})
+		a.finishConnect(p, srv, fs, err)
+		return
+	}
+
 	// Show a simple "connecting" message
 	dialog.ShowError(a.Pages, "Connecting to "+srv.Name+"...", nil)
 	a.ModalOpen = true
@@ -1660,22 +1664,25 @@ func (a *App) connectPanel(p *panel.Panel, srv config.ServerConfig) {
 		fs, err := a.ConnMgr.Connect(srv)
 		a.TviewApp.QueueUpdateDraw(func() {
 			a.closeDialog("error")
-			if err != nil {
-				dialog.ShowError(a.Pages, "Connection failed: "+err.Error(), func() {
-					a.closeDialog("error")
-				})
-				a.ModalOpen = true
-				a.TviewApp.SetFocus(a.Pages)
-				return
-			}
-
-			p.FS = fs
-			p.ConnectedServer = srv.Name
-			p.Path = "/"
-			p.Refresh()
-		
+			a.finishConnect(p, srv, fs, err)
 		})
 	}()
+}
+
+func (a *App) finishConnect(p *panel.Panel, srv config.ServerConfig, fs vfs.FileSystem, err error) {
+	if err != nil {
+		dialog.ShowError(a.Pages, "Connection failed: "+err.Error(), func() {
+			a.closeDialog("error")
+		})
+		a.ModalOpen = true
+		a.TviewApp.SetFocus(a.Pages)
+		return
+	}
+
+	p.FS = fs
+	p.ConnectedServer = srv.Name
+	p.Path = "/"
+	p.Refresh()
 }
 
 func (a *App) disconnectPanel(p *panel.Panel) {
@@ -1696,7 +1703,6 @@ func (a *App) disconnectPanel(p *panel.Panel) {
 	}
 	p.Path = home
 	p.Refresh()
-
 
 	if !otherUsesSame {
 		a.ConnMgr.Disconnect(name)
@@ -1851,56 +1857,14 @@ func entryNames(entries []model.FileEntry) string {
 // runWithSpinner runs fn in a goroutine with a non-modal spinner, then refreshes panels.
 func (a *App) runWithSpinner(displayName string, fn func() error) {
 	p := a.GetActivePanel()
-
-	spinView := tview.NewTextView()
-	spinView.SetBackgroundColor(theme.ColorDialogBg)
-	spinView.SetTextColor(theme.ColorDialogFg)
-	spinView.SetBorder(true)
-	spinView.SetBorderColor(theme.ColorDialogBorder)
-	spinView.SetTextAlign(tview.AlignCenter)
-
-	if len(displayName) > 20 {
-		displayName = displayName[:20] + "..."
-	}
-	boxW := len(displayName) + 6
-	if boxW < 18 {
-		boxW = 18
-	}
-	_, _, screenW, screenH := a.Pages.GetInnerRect()
-	spinView.SetRect(screenW-boxW-1, screenH-4, boxW, 3)
-	spinView.SetText(displayName + " |")
-
-	a.Pages.AddPage("spinner", spinView, false, true)
-	a.focusActiveTable()
+	stopSpinner := a.startSpinner(displayName)
 
 	go func() {
-		spinChars := [4]rune{'|', '/', '-', '\\'}
-		spinIdx := 0
-		done := make(chan struct{})
-
-		go func() {
-			ticker := time.NewTicker(150 * time.Millisecond)
-			defer ticker.Stop()
-			for {
-				select {
-				case <-done:
-					return
-				case <-ticker.C:
-					spinIdx = (spinIdx + 1) % 4
-					ch := spinChars[spinIdx]
-					a.TviewApp.QueueUpdateDraw(func() {
-						spinView.SetText(fmt.Sprintf("%s %c", displayName, ch))
-					})
-				}
-			}
-		}()
-
 		err := fn()
-		close(done)
 
 		a.TviewApp.QueueUpdateDraw(func() {
 			saved := a.activePanel
-			a.Pages.RemovePage("spinner")
+			stopSpinner()
 			a.activePanel = saved
 			a.focusActiveTable()
 			a.updatePanelStates()
@@ -1923,50 +1887,9 @@ func (a *App) runWithSpinner(displayName string, fn func() error) {
 // files and shows an overwrite confirmation dialog before each operation.
 func (a *App) runWithSpinnerOverwrite(displayName string, dstFS vfs.FileSystem, entries []model.FileEntry, dstPathFn func(entry model.FileEntry) string, fn func(entry model.FileEntry) error) {
 	p := a.GetActivePanel()
-
-	spinView := tview.NewTextView()
-	spinView.SetBackgroundColor(theme.ColorDialogBg)
-	spinView.SetTextColor(theme.ColorDialogFg)
-	spinView.SetBorder(true)
-	spinView.SetBorderColor(theme.ColorDialogBorder)
-	spinView.SetTextAlign(tview.AlignCenter)
-
-	if len(displayName) > 20 {
-		displayName = displayName[:20] + "..."
-	}
-	boxW := len(displayName) + 6
-	if boxW < 18 {
-		boxW = 18
-	}
-	_, _, screenW, screenH := a.Pages.GetInnerRect()
-	spinView.SetRect(screenW-boxW-1, screenH-4, boxW, 3)
-	spinView.SetText(displayName + " |")
-
-	a.Pages.AddPage("spinner", spinView, false, true)
-	a.focusActiveTable()
+	stopSpinner := a.startSpinner(displayName)
 
 	go func() {
-		spinChars := [4]rune{'|', '/', '-', '\\'}
-		spinIdx := 0
-		done := make(chan struct{})
-
-		go func() {
-			ticker := time.NewTicker(150 * time.Millisecond)
-			defer ticker.Stop()
-			for {
-				select {
-				case <-done:
-					return
-				case <-ticker.C:
-					spinIdx = (spinIdx + 1) % 4
-					ch := spinChars[spinIdx]
-					a.TviewApp.QueueUpdateDraw(func() {
-						spinView.SetText(fmt.Sprintf("%s %c", displayName, ch))
-					})
-				}
-			}
-		}()
-
 		var firstErr error
 		overwriteAll := false
 
@@ -2005,11 +1928,9 @@ func (a *App) runWithSpinnerOverwrite(displayName string, dstFS vfs.FileSystem, 
 		}
 
 	finish:
-		close(done)
-
 		a.TviewApp.QueueUpdateDraw(func() {
 			saved := a.activePanel
-			a.Pages.RemovePage("spinner")
+			stopSpinner()
 			a.activePanel = saved
 			a.focusActiveTable()
 			a.updatePanelStates()
@@ -2030,8 +1951,8 @@ func (a *App) runWithSpinnerOverwrite(displayName string, dstFS vfs.FileSystem, 
 
 // encryptFile encrypts srcPath with AES-256-GCM and writes to dstPath.
 // File format: [2 byte filename length][filename][16 byte salt][12 byte nonce][ciphertext+tag]
-func encryptFile(srcPath, dstPath, password string) error {
-	plaintext, err := os.ReadFile(srcPath)
+func encryptFile(fsys vfs.FileSystem, srcPath, dstPath, password string) error {
+	plaintext, err := fsys.ReadFile(srcPath)
 	if err != nil {
 		return err
 	}
@@ -2058,7 +1979,10 @@ func encryptFile(srcPath, dstPath, password string) error {
 		return err
 	}
 
-	origName := filepath.Base(srcPath)
+	origName := fsys.Base(srcPath)
+	if len(origName) > 65535 {
+		return fmt.Errorf("file name too long")
+	}
 
 	// Build header: filename length (uint16 big-endian) + filename
 	var header []byte
@@ -2068,34 +1992,30 @@ func encryptFile(srcPath, dstPath, password string) error {
 	// Header is included as AAD so any tampering with the filename is detected
 	ciphertext := gcm.Seal(nil, nonce, plaintext, header)
 
-	out, err := os.Create(dstPath)
+	out, err := fsys.Create(dstPath, 0600)
 	if err != nil {
 		return err
 	}
-	defer out.Close()
 
-	// Write header
-	if _, err := out.Write(header); err != nil {
+	// header + salt + nonce + ciphertext
+	for _, part := range [][]byte{header, salt, nonce, ciphertext} {
+		if _, err := out.Write(part); err != nil {
+			out.Close()
+			fsys.Remove(dstPath) // no half-written output
+			return err
+		}
+	}
+	if err := out.Close(); err != nil {
+		fsys.Remove(dstPath)
 		return err
 	}
-	// Write salt + nonce + ciphertext
-	if _, err := out.Write(salt); err != nil {
-		return err
-	}
-	if _, err := out.Write(nonce); err != nil {
-		return err
-	}
-	if _, err := out.Write(ciphertext); err != nil {
-		return err
-	}
-
 	return nil
 }
 
 // decryptFile decrypts srcPath and writes the original file to dstDir with its original name.
 // Returns the original filename.
-func decryptFile(srcPath, dstDir, password string) (string, error) {
-	data, err := os.ReadFile(srcPath)
+func decryptFile(fsys vfs.FileSystem, srcPath, dstDir, password string) (string, error) {
+	data, err := fsys.ReadFile(srcPath)
 	if err != nil {
 		return "", err
 	}
@@ -2134,12 +2054,46 @@ func decryptFile(srcPath, dstDir, password string) (string, error) {
 		return "", fmt.Errorf("decryption failed (wrong password?)")
 	}
 
-	dstPath := filepath.Join(dstDir, origName)
-	if err := os.WriteFile(dstPath, plaintext, 0600); err != nil {
+	// The stored name is authenticated, but a crafted file could still carry a
+	// path — never let it escape dstDir, and never overwrite an existing file.
+	origName = path.Base(strings.ReplaceAll(origName, "\\", "/"))
+	if origName == "" || origName == "." || origName == "/" {
+		origName = "decrypted"
+	}
+	origName = uniqueFileName(fsys, dstDir, origName)
+
+	dstPath := fsys.Join(dstDir, origName)
+	out, err := fsys.Create(dstPath, 0600)
+	if err != nil {
+		return "", err
+	}
+	if _, err := out.Write(plaintext); err != nil {
+		out.Close()
+		fsys.Remove(dstPath)
+		return "", err
+	}
+	if err := out.Close(); err != nil {
+		fsys.Remove(dstPath)
 		return "", err
 	}
 
 	return origName, nil
+}
+
+// uniqueFileName returns name, or name with a numeric suffix before the
+// extension, so that it does not exist in dir yet.
+func uniqueFileName(fsys vfs.FileSystem, dir, name string) string {
+	if _, err := fsys.Stat(fsys.Join(dir, name)); err != nil {
+		return name
+	}
+	ext := path.Ext(name)
+	base := strings.TrimSuffix(name, ext)
+	for i := 2; ; i++ {
+		candidate := fmt.Sprintf("%s%d%s", base, i, ext)
+		if _, err := fsys.Stat(fsys.Join(dir, candidate)); err != nil {
+			return candidate
+		}
+	}
 }
 
 // uniqueExtractDir returns a unique directory path for extracting an archive.
@@ -2180,6 +2134,9 @@ func extractZip(zipPath, destDir string) error {
 
 	for _, f := range r.File {
 		target := filepath.Join(destDir, f.Name)
+		if filepath.Clean(target) == filepath.Clean(destDir) {
+			continue // "." / "./" entry: the destination itself
+		}
 		// ZipSlip protection
 		if !strings.HasPrefix(filepath.Clean(target), filepath.Clean(destDir)+string(os.PathSeparator)) {
 			return fmt.Errorf("invalid path in archive: %s", f.Name)
@@ -2199,7 +2156,7 @@ func extractZip(zipPath, destDir string) error {
 			return err
 		}
 
-		out, err := os.OpenFile(target, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, f.Mode())
+		out, err := os.OpenFile(target, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, extractMode(f.Mode()))
 		if err != nil {
 			rc.Close()
 			return err
@@ -2255,6 +2212,9 @@ func extractTar(tarPath, destDir string) error {
 		}
 
 		target := filepath.Join(destDir, header.Name)
+		if filepath.Clean(target) == filepath.Clean(destDir) {
+			continue // "./" entry written by GNU tar for the root directory
+		}
 		// ZipSlip protection
 		if !strings.HasPrefix(filepath.Clean(target), filepath.Clean(destDir)+string(os.PathSeparator)) {
 			return fmt.Errorf("invalid path in archive: %s", header.Name)
@@ -2267,7 +2227,7 @@ func extractTar(tarPath, destDir string) error {
 			if err := os.MkdirAll(filepath.Dir(target), 0755); err != nil {
 				return err
 			}
-			out, err := os.OpenFile(target, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, os.FileMode(header.Mode))
+			out, err := os.OpenFile(target, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, extractMode(os.FileMode(header.Mode)))
 			if err != nil {
 				return err
 			}
@@ -2279,4 +2239,14 @@ func extractTar(tarPath, destDir string) error {
 		}
 	}
 	return nil
+}
+
+// extractMode returns the permission bits for an extracted file; archives made
+// on Windows often carry no permissions at all, which would leave the file
+// unreadable.
+func extractMode(m os.FileMode) os.FileMode {
+	if m.Perm() == 0 {
+		return 0644
+	}
+	return m.Perm()
 }

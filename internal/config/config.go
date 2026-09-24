@@ -20,6 +20,9 @@ type ServerConfig struct {
 	User     string `json:"user"`
 	Password string `json:"password,omitempty"`
 	KeyPath  string `json:"key_path,omitempty"`
+	// SystemSSH connects via the system ssh binary (~/.ssh/config, agent,
+	// security keys). Also used automatically when the key is unusable directly.
+	SystemSSH bool `json:"system_ssh,omitempty"`
 }
 
 type Config struct {

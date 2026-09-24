@@ -46,6 +46,7 @@ func ShowServerEdit(pages *tview.Pages, title string, srv config.ServerConfig, o
 	form.AddInputField("User:", srv.User, 30, nil, nil)
 	form.AddPasswordField("Password:", srv.Password, 30, '*', nil)
 	form.AddInputField("Key Path:", srv.KeyPath, 40, nil, nil)
+	form.AddCheckbox("System ssh:", srv.SystemSSH, nil)
 
 	form.AddButton("Save", func() {
 		name := form.GetFormItem(0).(*tview.InputField).GetText()
@@ -55,6 +56,7 @@ func ShowServerEdit(pages *tview.Pages, title string, srv config.ServerConfig, o
 		user := form.GetFormItem(4).(*tview.InputField).GetText()
 		password := form.GetFormItem(5).(*tview.InputField).GetText()
 		keyPath := form.GetFormItem(6).(*tview.InputField).GetText()
+		systemSSH := form.GetFormItem(7).(*tview.Checkbox).IsChecked()
 
 		port := 0
 		if portText != "" {
@@ -68,7 +70,8 @@ func ShowServerEdit(pages *tview.Pages, title string, srv config.ServerConfig, o
 			Port:     port,
 			User:     user,
 			Password: password,
-			KeyPath:  keyPath,
+			KeyPath:   keyPath,
+			SystemSSH: systemSSH,
 		})
 	})
 	form.AddButton("Cancel", func() {
@@ -84,7 +87,7 @@ func ShowServerEdit(pages *tview.Pages, title string, srv config.ServerConfig, o
 	})
 
 	dialogWidth := 60
-	dialogHeight := 19
+	dialogHeight := 21
 
 	flex := tview.NewFlex().SetDirection(tview.FlexRow).
 		AddItem(nil, 0, 1, false).
