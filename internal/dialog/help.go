@@ -22,7 +22,7 @@ func newHelpBox(onClose func()) *helpBox {
 			" Navigation",
 			" ──────────────────────────────────",
 			" Tab            Switch panel",
-			" Enter          Open dir / file",
+			" Enter          Open dir / run script / open file",
 			" Backspace      Parent directory",
 			" Ctrl+R         Refresh panels",
 			" Right arrow    Next column (Brief)",

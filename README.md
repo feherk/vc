@@ -10,7 +10,7 @@ Built with Go, using [tview](https://github.com/rivo/tview) and [tcell](https://
 - File operations: Copy (F5), Move/Rename (F6), Delete (F8), MkDir (F7)
 - File viewer (F3) with zip archive content listing
 - Zip compression (F2) for selected files/directories
-- Open files with system default application (Enter)
+- Run scripts and executables in the terminal, open other files with the system default application (Enter)
 - File editor integration via `$EDITOR` (F4)
 - Inline search — just start typing to jump to matching files
 - Directory size calculation (Space)
@@ -76,7 +76,7 @@ go install github.com/feherkaroly/vc@latest
 | Key | Action |
 |-----|--------|
 | Tab | Switch panel |
-| Enter | Open file / Enter directory |
+| Enter | Enter directory / run script or executable / open file |
 | Backspace | Go to parent directory / Change drive (Windows) |
 | Insert/Ctrl+S | Toggle selection |
 | Space | Calculate directory size |

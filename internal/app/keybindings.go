@@ -106,7 +106,7 @@ func (a *App) SetupKeyBindings() {
 			if atRoot && !p.IsRemote() {
 				a.ShowDriveSelector()
 			} else if entry != nil {
-				a.OpenFile()
+				a.OpenOrRun()
 				go func() {
 					time.Sleep(2 * time.Second)
 					a.TviewApp.QueueUpdateDraw(func() {
@@ -203,7 +203,7 @@ func (a *App) SetupKeyBindings() {
 		if atRoot && !p.IsRemote() {
 			a.ShowDriveSelector()
 		} else if entry != nil {
-			a.OpenFile()
+			a.OpenOrRun()
 			go func() {
 				time.Sleep(2 * time.Second)
 				a.TviewApp.QueueUpdateDraw(func() {
